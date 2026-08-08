@@ -1,21 +1,40 @@
 # Landed — pinned dependencies
-# Regenerate a full lockfile before submission:  pip freeze > requirements.lock.txt
+# Full lockfile before submission:  pip freeze > requirements.lock.txt
 
-# --- Core ---
-pydantic==2.9.2              # schema contract + validation
-python-dotenv==1.0.1
+# --- Domain core ---
+pydantic==2.9.2
 
 # --- Document ingestion ---
-pdfplumber==0.11.4           # PDF text + per-page anchors (needed for citations)
-openpyxl==3.1.5              # .xlsx quotations
+pdfplumber==0.11.4          # PDF text with page anchors
+pypdfium2==4.30.0           # render scanned pages to images (self-contained wheel)
+python-docx==1.1.2          # DOCX paragraphs and tables
+openpyxl==3.1.5             # XLSX with sheet/cell refs
+Pillow==10.4.0
 pandas==2.2.3
 
-# --- Extraction (LLM) ---
-anthropic==0.39.0            # structured extraction; arithmetic never touches this
+# --- Extraction (the only layer that calls a model) ---
+anthropic==0.39.0
 
-# --- UI ---
-streamlit==1.39.0
-plotly==5.24.1               # break-even chart
+# --- Web ---
+fastapi==0.115.4
+uvicorn[standard]==0.32.0
+jinja2==3.1.4
+python-multipart==0.0.12    # file uploads
+itsdangerous==2.2.0         # signed session cookies
 
-# --- Evaluation ---
+# --- Persistence ---
+SQLAlchemy==2.0.36
+
+# --- Auth ---
+argon2-cffi==23.1.0
+
+# --- Reporting ---
+reportlab==4.2.5            # PDF export (pure Python, no system deps)
+
+# --- Config ---
+python-dotenv==1.0.1
+
+# --- Dev ---
 pytest==8.3.3
+httpx==0.27.2               # FastAPI TestClient
+ruff==0.7.2

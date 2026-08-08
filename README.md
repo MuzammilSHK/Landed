@@ -73,9 +73,12 @@ Full detail: [`docs/architecture.md`](docs/architecture.md)
 
 ## Setup
 
+Requires **Python 3.11+** (developed on 3.12). On Windows, `python` may resolve to
+an older interpreter — use the launcher to be explicit.
+
 ```bash
-python -m venv .venv
-.venv\Scripts\activate        # Windows
+py -3.12 -m venv .venv
+.venv\Scripts\activate
 pip install -r requirements.txt
 copy .env.example .env         # then add your API key
 ```
@@ -83,7 +86,13 @@ copy .env.example .env         # then add your API key
 ## Run
 
 ```bash
-streamlit run app/app.py
+uvicorn landed.web.app:app --reload
+```
+
+Compare a pack headlessly, without the web layer:
+
+```bash
+python -m landed.cli compare --pack packs/synthetic --quantity 10000
 ```
 
 Reproduce the reported evaluation numbers:
@@ -95,23 +104,30 @@ python scripts/run_eval.py --pack packs/official --out results/
 ## Repository layout
 
 ```
-landed/           core library
-  schema.py         the extraction contract — read this first
-  ingest.py         documents → text with page anchors
-  extract.py        LLM → schema, citation required per field
-  normalize.py      units, currency, per-piece vs per-1000
-  cost_engine.py    deterministic landed-cost math + refusal guard
-  conflicts.py      missing / contradiction / unit mismatch / undated currency
-  mutate.py         seeded perturbation harness for robustness evaluation
-  evaluate.py       scoring against organizer reference calculations
-app/              Streamlit interface
+landed/
+  core/             domain — knows nothing of HTTP, users, or the database
+    schema.py         the extraction contract — read this first
+    ingest.py         documents → text or page images, with anchors
+    extract.py        LLM → schema, citation required per field
+    normalize.py      units, currency, per-piece vs per-1000
+    cost_engine.py    deterministic landed-cost math + refusal guard
+    conflicts.py      missing / contradiction / unit mismatch / undated currency
+  services/         orchestration: run a comparison, persist a version, diff
+  db/               SQLAlchemy models and session
+  web/              FastAPI routes, Jinja templates, auth
+  eval/             mutation harness and scoring — imports core only
+  cli.py            headless comparison, no web layer needed
 packs/synthetic/  our dev pack (tracked — clearly labelled synthetic)
 packs/official/   organizer pack (gitignored; manifest is tracked)
-tests/            unit tests — cost engine and conflict detectors
+tests/            layering, cost engine, conflict detectors
 docs/             required written deliverables
-results/          scoring output, threshold records, run configs
-scripts/          entry points
+results/          scoring output and run configs
+scripts/          evaluation and checksum entry points
 ```
+
+`core/` never imports from `services/`, `db/`, `web/`, or `eval/`. That constraint
+is enforced by [`tests/test_layering.py`](tests/test_layering.py) and is what lets
+the evaluation harness score the engine headlessly.
 
 ## Data handling
 
