@@ -189,6 +189,26 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   padding: 12px 14px; border-radius: 0 6px 6px 0; margin-bottom: 16px;
 }
 
+/* ---- assistant ---- */
+.chat { display: flex; flex-direction: column; gap: 12px; margin-bottom: 4px; }
+.turn { max-width: 82%; }
+.turn.user { align-self: flex-end; text-align: right; }
+.turn .who {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted); font-weight: 700; margin-bottom: 3px;
+}
+.turn p {
+  margin: 0; padding: 9px 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--bg);
+}
+.turn.user p { background: var(--accent); color: #fff; border-color: transparent; }
+.proposal {
+  margin-top: 8px; padding: 10px 12px; text-align: left;
+  border: 1px solid var(--line); border-left: 3px solid var(--contested);
+  background: var(--contested-bg); border-radius: 0 6px 6px 0;
+}
+.proposal p { margin: 0 0 8px; padding: 0; background: none; border: none; }
+
 /* ---- footer ---- */
 footer.boundary {
   border-top: 1px solid var(--line); margin-top: 40px; padding-top: 16px;

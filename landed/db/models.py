@@ -74,6 +74,9 @@ class Project(Base):
     resolutions: Mapped[list[Resolution]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
+    chat_messages: Mapped[list[ChatMessage]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
 
     # The dashboard's only listing query: this user's projects, most recent first.
     __table_args__ = (Index("ix_projects_user_updated", "user_id", "updated_at"),)
@@ -180,6 +183,33 @@ class ComparisonResult(Base):
     __table_args__ = (
         Index("ix_results_conflicts_gin", "conflicts", postgresql_using="gin"),
     )
+
+
+class ChatMessage(Base):
+    """One turn of the assistant conversation for a project.
+
+    Stored rather than kept in the session so an assumption recorded from a
+    conversation is still readable alongside the exchange that produced it.
+
+    `action` holds a proposal the assistant made. It is inert: nothing changes until
+    a person confirms it, at which point a Resolution is written.
+    """
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    role: Mapped[str] = mapped_column(String(16))        # user | assistant
+    content: Mapped[str] = mapped_column(Text)
+    action: Mapped[dict | None] = mapped_column(JSONB)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _created_at()
+
+    project: Mapped[Project] = relationship(back_populates="chat_messages")
+
+    @property
+    def is_pending(self) -> bool:
+        return bool(self.action) and self.confirmed_at is None
 
 
 class Resolution(Base):

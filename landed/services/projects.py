@@ -127,12 +127,10 @@ def list_documents(session: Session, user: User, project_id: int) -> list[Docume
     )
 
 
-def remove_document(session: Session, user: User, project_id: int, document_id: int) -> None:
-    """Detach a document from the project.
-
-    The stored bytes are left in place: earlier comparison versions cite them, and a
-    citation that no longer resolves is worse than an orphaned file.
-    """
+def get_document(
+    session: Session, user: User, project_id: int, document_id: int
+) -> Document:
+    """One document, scoped to its project and its owner."""
     project = get_project(session, user, project_id)
     document = session.scalars(
         select(Document).where(
@@ -141,5 +139,14 @@ def remove_document(session: Session, user: User, project_id: int, document_id: 
     ).one_or_none()
     if document is None:
         raise ProjectNotFound(document_id)
-    session.delete(document)
+    return document
+
+
+def remove_document(session: Session, user: User, project_id: int, document_id: int) -> None:
+    """Detach a document from the project.
+
+    The stored bytes are left in place: earlier comparison versions cite them, and a
+    citation that no longer resolves is worse than an orphaned file.
+    """
+    session.delete(get_document(session, user, project_id, document_id))
     session.commit()

@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import mimetypes
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from landed.db.models import User
-from landed.services import comparisons, projects, resolutions
+from landed.services import chat, comparisons, projects, resolutions
+from landed.services.projects import ProjectNotFound
 from landed.web.security import csrf_token, db_session, require_user, verify_csrf
 from landed.web.templating import templates
 
@@ -71,6 +75,7 @@ async def detail(
             "results": _ordered(comparison),
             "versions": comparisons.list_versions(session, user, project_id),
             "history": resolutions.history(session, user, project_id),
+            "messages": chat.history(session, user, project_id),
             "csrf": csrf_token(request),
         },
     )
@@ -96,6 +101,44 @@ async def upload(
             content_type=upload_file.content_type,
         )
     return _back_to(project_id)
+
+
+@router.get("/projects/{project_id}/documents/{document_id}/open")
+async def open_document(
+    project_id: int,
+    document_id: int,
+    download: bool = False,
+    user: User = Depends(require_user),
+    session: Session = Depends(db_session),
+):
+    """Serve an uploaded document so a citation can be checked against the source.
+
+    The path comes from the database row, never from the request. Files are stored
+    under a content hash precisely so a supplied filename can never reach the
+    filesystem, and resolving one here would give that back.
+    """
+    document = projects.get_document(session, user, project_id, document_id)
+    stored = Path(document.stored_path)
+    if not stored.is_file():
+        raise ProjectNotFound(document_id)
+
+    disposition = "attachment" if download else "inline"
+    return FileResponse(
+        stored,
+        media_type=document.content_type or _guess_type(document.filename),
+        filename=document.filename,
+        content_disposition_type=disposition,
+        headers={
+            # Uploaded files are untrusted content served from our own origin. Without
+            # this, an HTML or SVG upload would run script against a logged-in session.
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox; default-src 'none'",
+        },
+    )
+
+
+def _guess_type(filename: str) -> str:
+    return mimetypes.guess_type(filename)[0] or "application/octet-stream"
 
 
 @router.post(
@@ -164,6 +207,38 @@ async def revert(
     session: Session = Depends(db_session),
 ):
     resolutions.revert(session, user, project_id, resolution_id)
+    return _back_to(project_id)
+
+
+@router.post("/projects/{project_id}/ask", dependencies=[Depends(verify_csrf)])
+async def ask(
+    project_id: int,
+    question: str = Form(...),
+    user: User = Depends(require_user),
+    session: Session = Depends(db_session),
+):
+    if question.strip():
+        chat.ask(session, user, project_id, question)
+    return _back_to(project_id)
+
+
+@router.post(
+    "/projects/{project_id}/chat/{message_id}/confirm",
+    dependencies=[Depends(verify_csrf)],
+)
+async def confirm_action(
+    project_id: int,
+    message_id: int,
+    user: User = Depends(require_user),
+    session: Session = Depends(db_session),
+):
+    """Carry out a change the assistant proposed.
+
+    The confirmation is the approval step. A model turning "freight is about twenty
+    four hundred" straight into a recorded assumption would put a value nobody
+    actually approved into the audit trail.
+    """
+    chat.confirm(session, user, project_id, message_id)
     return _back_to(project_id)
 
 

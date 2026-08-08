@@ -63,6 +63,9 @@ class ExtractionRequest(BaseModel):
     document_text: list[str] = Field(default_factory=list)
     images: list[ImagePart] = Field(default_factory=list)
     max_tokens: int = 4096
+    # Overridable so the assistant can state its own rules while reusing the same
+    # transport, fencing, and retry behaviour as extraction.
+    system: str = SYSTEM_PROMPT
 
 
 class ExtractionResponse(BaseModel):
@@ -210,7 +213,7 @@ class AnthropicProvider:
         message = Anthropic(api_key=self._api_key).messages.create(
             model=self.model,
             max_tokens=request.max_tokens,
-            system=SYSTEM_PROMPT,
+            system=request.system,
             messages=[{"role": "user", "content": content}],
         )
         return ExtractionResponse(
@@ -247,7 +250,7 @@ class GeminiProvider:
                 f"{self.endpoint}/{self.model}:generateContent",
                 headers={"x-goog-api-key": self._api_key},
                 json={
-                    "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+                    "systemInstruction": {"parts": [{"text": request.system}]},
                     "contents": [{"parts": parts}],
                     "generationConfig": {"responseMimeType": "application/json"},
                 },
@@ -286,7 +289,7 @@ class OllamaProvider:
                 "format": "json",
                 "stream": False,
                 "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": request.system},
                     {
                         "role": "user",
                         "content": build_prompt(request),

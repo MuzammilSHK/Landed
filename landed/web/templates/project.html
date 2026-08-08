@@ -20,8 +20,14 @@
           {% for document in documents %}
             <tr>
               <td>
-                {{ document.filename }}
+                <a href="/projects/{{ project.id }}/documents/{{ document.id }}/open"
+                   target="_blank" rel="noopener">{{ document.filename }}</a>
                 <div class="cite">{{ document.sha256[:12] }} · {{ document.byte_size }} bytes</div>
+              </td>
+              <td style="width:1%" class="small">
+                <a class="btn ghost small"
+                   href="/projects/{{ project.id }}/documents/{{ document.id }}/open?download=true">
+                  Download</a>
               </td>
               <td style="width:1%">
                 <form method="post"
@@ -228,6 +234,58 @@
     <p class="small">Upload the documents you have been sent, then run a comparison.</p>
   </div>
 {% endif %}
+
+<div class="panel">
+  <h2>Ask about this comparison</h2>
+
+  {% if messages %}
+    <div class="chat">
+      {% for message in messages %}
+        <div class="turn {{ message.role }}">
+          <div class="who">{{ "You" if message.role == "user" else "Assistant" }}</div>
+          <p>{{ message.content }}</p>
+          {% if message.action %}
+            <div class="proposal">
+              <p class="small"><strong>Proposed:</strong>
+                {{ message.action.get("summary") or message.action.get("kind") }}</p>
+              {% if message.is_pending %}
+                <form method="post"
+                      action="/projects/{{ project.id }}/chat/{{ message.id }}/confirm">
+                  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+                  <button class="small" type="submit">Confirm this change</button>
+                </form>
+              {% else %}
+                <p class="small muted">Confirmed.</p>
+              {% endif %}
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="small muted">
+      Ask why a supplier is blocked, where a figure came from, or what a different
+      order quantity would cost.
+    </p>
+  {% endif %}
+
+  <form method="post" action="/projects/{{ project.id }}/ask" style="margin-top:12px">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <div class="row">
+      <div style="flex:4">
+        <label for="question">Your question</label>
+        <input id="question" name="question" required
+               placeholder="Why can’t Ningbo be compared?">
+      </div>
+      <div style="flex:0"><button type="submit">Ask</button></div>
+    </div>
+  </form>
+  <p class="small muted" style="margin-top:8px">
+    The assistant reads this comparison only, and never calculates — figures come
+    from the same engine as the report. It cannot change anything on its own; any
+    change it suggests waits for you to confirm it.
+  </p>
+</div>
 
 {% if history %}
   <div class="panel">
