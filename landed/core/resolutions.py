@@ -15,12 +15,11 @@ decision.
 
 from __future__ import annotations
 
-import re
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from pydantic import BaseModel
 
-from .normalize import parse_incoterm, parse_price_basis
+from .normalize import first_number, parse_incoterm, parse_price_basis
 from .schema import (
     Attribution,
     Conflict,
@@ -245,8 +244,4 @@ def _note(resolution: HumanResolution) -> str:
 
 
 def _decimal(text: str) -> Decimal | None:
-    cleaned = re.sub(r"[^\d.\-]", "", text)
-    try:
-        return Decimal(cleaned) if cleaned else None
-    except InvalidOperation:
-        return None
+    return first_number(text)

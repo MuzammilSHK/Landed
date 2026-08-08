@@ -226,10 +226,15 @@ class TestProviderFailure:
     """One document failing must not cost the work done on every other supplier."""
 
     class FlakyStub(PackStub):
-        """Fails on supplier B's documents, succeeds on the rest."""
+        """Fails on the scanned quote, succeeds on everything else.
+
+        Targets supplier E deliberately: an image has no text layer, so it is the
+        one document that must reach a model and therefore the one that can be made
+        to fail once the labelled pass handles the rest.
+        """
 
         def extract(self, request):
-            if "Guangzhou" in " ".join(request.document_text):
+            if request.images:
                 raise RateLimited("429 quota exceeded")
             return super().extract(request)
 
@@ -241,20 +246,34 @@ class TestProviderFailure:
         """Not 'unit price not stated' — that would be a lie about a document
         nobody managed to open."""
         outcome = compare_pack(PACK, 10_000, provider=self.FlakyStub())
-        supplier = find(outcome, "B")
+        supplier = find(outcome, "E")
         assert "could not be read" in supplier.refusal.reason
         assert "rate limit" in supplier.refusal.reason
 
     def test_an_unread_supplier_is_not_landed_rather_than_contested(self) -> None:
         """Contested means two sources disagree. Nothing was read here."""
         outcome = compare_pack(PACK, 10_000, provider=self.FlakyStub())
-        assert find(outcome, "B").state is QuoteState.NOT_LANDED
+        assert find(outcome, "E").state is QuoteState.NOT_LANDED
 
     def test_a_failure_is_marked_as_such_not_as_missing_data(self) -> None:
         outcome = compare_pack(PACK, 10_000, provider=self.FlakyStub())
-        kinds = {c.kind for c in find(outcome, "B").quotation.conflicts}
+        kinds = {c.kind for c in find(outcome, "E").quotation.conflicts}
         assert ConflictKind.EXTRACTION_FAILED in kinds
-        assert find(outcome, "B").quotation.missing == []
+        assert find(outcome, "E").quotation.missing == []
+
+    def test_labelled_documents_survive_a_dead_provider(self) -> None:
+        """The point of reading deterministically: a spent quota no longer takes
+        the whole comparison with it."""
+
+        class DeadProvider:
+            name, model = "dead", "none"
+
+            def extract(self, request):
+                raise RateLimited("429 quota exceeded")
+
+        outcome = compare_pack(PACK, 10_000, provider=DeadProvider())
+        assert {s.supplier_id for s in outcome.landed} >= {"A", "B", "D"} - {"B"}
+        assert len(outcome.landed) >= 2
 
 
 class TestRobustness:

@@ -16,6 +16,8 @@ from landed.core.extract import (
     extract_profile,
     extract_quotation,
     scan_for_injection,
+    to_profile,
+    to_quotation,
 )
 from landed.core.ingest import ingest_file
 from landed.core.providers import ExtractionRequest, ExtractionResponse
@@ -74,73 +76,73 @@ def read(name: str):
 
 class TestValueMapping:
     def test_prices_parse_through_currency_marks_and_separators(self) -> None:
-        quote, _, _ = extract_quotation(
-            read("quote_a.pdf"), "A", StubProvider(quotation_payload())
-        )
+        quote = to_quotation(quotation_payload(), read("quote_a.pdf"), "A")
         item = quote.line_items[0]
         assert item.unit_price.value == Decimal("12.40")
         assert item.tooling_cost.value == Decimal("8400.00")
         assert item.moq.value == 5000
 
     def test_incoterm_is_parsed_out_of_free_text(self) -> None:
-        quote, _, _ = extract_quotation(
-            read("quote_a.pdf"), "A", StubProvider(quotation_payload())
-        )
+        quote = to_quotation(quotation_payload(), read("quote_a.pdf"), "A")
         assert quote.incoterm.value is Incoterm.FOB
 
     def test_price_basis_is_parsed(self) -> None:
-        quote, _, _ = extract_quotation(
-            read("quote_a.pdf"), "A", StubProvider(quotation_payload())
-        )
+        quote = to_quotation(quotation_payload(), read("quote_a.pdf"), "A")
         assert quote.line_items[0].price_basis.value is PriceBasis.PER_PIECE
 
     def test_unparseable_incoterm_is_dropped_rather_than_guessed(self) -> None:
         payload = quotation_payload(incoterm=field("to be discussed"))
-        quote, _, _ = extract_quotation(read("quote_a.pdf"), "A", StubProvider(payload))
+        quote = to_quotation(payload, read("quote_a.pdf"), "A")
         assert quote.incoterm is None
 
 
 class TestCitations:
     def test_source_points_at_the_ingested_file(self) -> None:
         """The filename comes from what we ingested, not from what the model says."""
-        quote, _, _ = extract_quotation(
-            read("quote_a.pdf"), "A", StubProvider(quotation_payload())
-        )
+        quote = to_quotation(quotation_payload(), read("quote_a.pdf"), "A")
         assert quote.currency.source.file == "quote_a.pdf"
         assert quote.currency.source.page == 1
 
-    def test_uncited_value_is_dropped(self) -> None:
+    def test_a_value_with_no_anchor_at_all_is_dropped(self) -> None:
         """An uncited number is indistinguishable from a fabricated one."""
-        payload = quotation_payload(currency={"value": "USD", "excerpt": "USD"})
-        quote, _, _ = extract_quotation(read("quote_a.pdf"), "A", StubProvider(payload))
+        payload = quotation_payload(currency={"value": "USD", "excerpt": ""})
+        quote = to_quotation(payload, read("quote_a.pdf"), "A")
         assert quote.currency is None
+
+    def test_a_verbatim_excerpt_is_a_citation_on_its_own(self) -> None:
+        """Word documents have no fixed pages. Requiring one would discard every
+        value read from a .docx, and "search this file for this sentence" is a check
+        a person can actually perform."""
+        payload = quotation_payload(
+            currency={"value": "USD", "excerpt": "Unit price: USD 12.40 per piece"}
+        )
+        quote = to_quotation(payload, read("profile_b.docx"), "B")
+        assert quote.currency is not None
+        assert quote.currency.source.page is None
+        assert quote.currency.source.excerpt.startswith("Unit price")
 
     def test_empty_value_is_dropped(self) -> None:
         payload = quotation_payload(payment_terms=field(""))
-        quote, _, _ = extract_quotation(read("quote_a.pdf"), "A", StubProvider(payload))
+        quote = to_quotation(payload, read("quote_a.pdf"), "A")
         assert quote.payment_terms is None
 
     def test_excerpt_is_retained_for_verification(self) -> None:
         payload = quotation_payload(
             currency={"value": "USD", "page": 1, "excerpt": "Unit price: USD 12.40"}
         )
-        quote, _, _ = extract_quotation(read("quote_a.pdf"), "A", StubProvider(payload))
+        quote = to_quotation(payload, read("quote_a.pdf"), "A")
         assert quote.currency.source.excerpt == "Unit price: USD 12.40"
 
 
 class TestReadMethod:
     def test_text_layer_document_is_marked_as_such(self) -> None:
-        quote, _, _ = extract_quotation(
-            read("quote_a.pdf"), "A", StubProvider(quotation_payload())
-        )
+        quote = to_quotation(quotation_payload(), read("quote_a.pdf"), "A")
         assert quote.currency.source.read_method is ReadMethod.TEXT_LAYER
         assert quote.currency.needs_verification is False
 
     def test_scanned_document_is_marked_for_verification(self) -> None:
         """Decided from what we ingested — a model cannot pass a scan off as a read."""
-        quote, _, _ = extract_quotation(
-            read("quote_e.png"), "E", StubProvider(quotation_payload())
-        )
+        quote = to_quotation(quotation_payload(), read("quote_e.png"), "E")
         assert quote.currency.source.read_method is ReadMethod.VISION
         assert quote.currency.needs_verification is True
 
@@ -166,11 +168,13 @@ class TestInjectionScanning:
         assert conflicts
 
     def test_model_report_is_honoured_when_the_scan_is_silent(self) -> None:
+        """quote_c.pdf states no delivery terms, so the labelled pass is incomplete
+        and the model is consulted — which is the only way its report can arrive."""
         payload = quotation_payload(
             injection_suspected={"found": True, "excerpt": "see attached instructions"}
         )
         _, conflicts, _ = extract_quotation(
-            read("quote_a.pdf"), "A", StubProvider(payload)
+            read("quote_c.pdf"), "C", StubProvider(payload)
         )
         assert len(conflicts) == 1
 
@@ -188,7 +192,7 @@ class TestRequestConstruction:
 
     def test_provider_receives_the_schema(self) -> None:
         provider = StubProvider(quotation_payload())
-        extract_quotation(read("quote_a.pdf"), "A", provider)
+        extract_quotation(read("quote_c.pdf"), "C", provider)
         assert provider.seen.json_schema == QUOTATION_SCHEMA
 
 
@@ -200,9 +204,7 @@ class TestProfiles:
             "lead_time_days": field(42),
             "certifications": [field("ISO 9001:2015"), field("RoHS")],
         }
-        profile, _, _ = extract_profile(
-            read("profile_b.docx"), "B", StubProvider(payload)
-        )
+        profile = to_profile(payload, read("profile_b.docx"), "B")
         assert profile.moq.value == 10_000
         assert profile.lead_time_days.value == 42
         assert [c.value for c in profile.certifications] == ["ISO 9001:2015", "RoHS"]

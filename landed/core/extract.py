@@ -20,11 +20,12 @@ that it was being manipulated.
 from __future__ import annotations
 
 import re
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any
 
+from . import labelled
 from .ingest import IngestedDocument
-from .normalize import parse_incoterm, parse_price_basis
+from .normalize import first_number, parse_incoterm, parse_price_basis
 from .providers import ExtractionRequest, ImagePart, Provider, get_provider
 from .schema import (
     Conflict,
@@ -205,6 +206,11 @@ def build_request(
     )
 
 
+# What a quotation must yield before a model is worth calling. Anything short of
+# this and the deterministic pass has not saved us the call.
+REQUIRED_FIELDS = ("unit_price", "price_basis", "currency", "incoterm")
+
+
 def extract_quotation(
     document: IngestedDocument,
     supplier_id: str,
@@ -212,16 +218,37 @@ def extract_quotation(
 ) -> tuple[Quotation, list[Conflict], dict]:
     """Read one quotation. Returns the quotation, any conflicts, and the raw payload.
 
-    The raw payload is returned for storage: which model produced which reading is
+    Labelled text is read deterministically first. When that yields everything a
+    total needs, no model is called at all — which is faster, free, works offline,
+    and cites the literal line rather than a page a model nominated. The model
+    handles what is left: scans, unlabelled layouts, and anything phrased in a way
+    the patterns do not cover.
+
+    The raw payload is returned for storage: which pass produced which reading is
     part of a value's provenance.
     """
-    engine = provider or get_provider()
-    response = engine.extract(
-        build_request(document, QUOTATION_INSTRUCTION, QUOTATION_SCHEMA)
-    )
-    payload = response.payload
+    payload = labelled.read_quotation(document)
+    if labelled.missing_from(payload, REQUIRED_FIELDS) or document.needs_vision:
+        engine = provider or get_provider()
+        response = engine.extract(
+            build_request(document, QUOTATION_INSTRUCTION, QUOTATION_SCHEMA)
+        )
+        payload = labelled.merge(payload, response.payload)
 
-    quotation = Quotation(
+    quotation = to_quotation(payload, document, supplier_id)
+    return quotation, _injection_conflicts(document, payload), payload
+
+
+def to_quotation(
+    payload: dict, document: IngestedDocument, supplier_id: str
+) -> Quotation:
+    """Map a wire payload onto the contract, building every citation locally.
+
+    Separate from the transport so the interpretation rules — uncited values
+    dropped, read method decided from what we ingested, types coerced or discarded —
+    are testable without any provider at all.
+    """
+    return Quotation(
         supplier_id=supplier_id,
         supplier_name=_raw(payload.get("supplier_name")),
         quote_id=_raw(payload.get("quote_id")),
@@ -237,7 +264,6 @@ def extract_quotation(
             for item in payload.get("line_items") or []
         ],
     )
-    return quotation, _injection_conflicts(document, payload), payload
 
 
 def extract_profile(
@@ -245,11 +271,27 @@ def extract_profile(
     supplier_id: str,
     provider: Provider | None = None,
 ) -> tuple[SupplierProfile, list[Conflict], dict]:
-    engine = provider or get_provider()
-    response = engine.extract(build_request(document, PROFILE_INSTRUCTION, PROFILE_SCHEMA))
-    payload = response.payload
+    """Read a supplier profile, deterministically where the document allows.
 
-    profile = SupplierProfile(
+    A profile earns its place by disputing the quotation's MOQ or lead time. If the
+    labelled pass found both, there is nothing a model would add.
+    """
+    payload = labelled.read_profile(document)
+    if labelled.missing_from(payload, ("moq", "lead_time_days")) or document.needs_vision:
+        engine = provider or get_provider()
+        response = engine.extract(
+            build_request(document, PROFILE_INSTRUCTION, PROFILE_SCHEMA)
+        )
+        payload = labelled.merge(payload, response.payload)
+
+    profile = to_profile(payload, document, supplier_id)
+    return profile, _injection_conflicts(document, payload), payload
+
+
+def to_profile(
+    payload: dict, document: IngestedDocument, supplier_id: str
+) -> SupplierProfile:
+    return SupplierProfile(
         supplier_id=supplier_id,
         supplier_name=_raw(payload.get("supplier_name")),
         moq=_count(payload.get("moq"), document),
@@ -263,7 +305,6 @@ def extract_profile(
             if text is not None
         ],
     )
-    return profile, _injection_conflicts(document, payload), payload
 
 
 # --------------------------------------------------------------------------- #
@@ -284,8 +325,16 @@ def _line_item(item: dict, document: IngestedDocument, currency: Any) -> LineIte
 
 
 def _source(field: dict, document: IngestedDocument) -> Source | None:
-    """Build the citation locally. Returns None when the model gave no anchor."""
-    if not any(field.get(key) is not None for key in _CITATION_KEYS):
+    """Build the citation locally. Returns None when nothing anchors the value.
+
+    A verbatim excerpt counts as an anchor in its own right. Word documents have no
+    fixed pages, so requiring one would silently discard everything read from a
+    .docx — and "search this file for this sentence" is a check a person can
+    actually perform. Page, sheet, and cell refine a citation; they do not define it.
+    """
+    excerpt = (field.get("excerpt") or "").strip()
+    positioned = any(field.get(key) is not None for key in _CITATION_KEYS)
+    if not positioned and not excerpt:
         return None
     page = field.get("page")
     return Source(
@@ -293,7 +342,7 @@ def _source(field: dict, document: IngestedDocument) -> Source | None:
         page=page,
         sheet=field.get("sheet"),
         cell=field.get("cell"),
-        excerpt=(field.get("excerpt") or "").strip() or None,
+        excerpt=excerpt or None,
         read_method=_read_method(document, page),
     )
 
@@ -384,14 +433,7 @@ def _price_basis(field: Any, document: IngestedDocument) -> Sourced[PriceBasis] 
 
 
 def _decimal(value: Any) -> Decimal | None:
-    """Parse a number as printed, tolerating thousands separators and currency marks."""
-    if isinstance(value, int | float | Decimal):
-        return Decimal(str(value))
-    cleaned = re.sub(r"[^\d.\-]", "", str(value))
-    try:
-        return Decimal(cleaned) if cleaned else None
-    except InvalidOperation:
-        return None
+    return first_number(value)
 
 
 def _confidence(field: dict) -> float | None:

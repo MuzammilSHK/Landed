@@ -14,7 +14,7 @@ those Nones into something the user can act on.
 from __future__ import annotations
 
 import re
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from .schema import CostAssumptions, Incoterm, Money, Origin, PriceBasis, Sourced
 
@@ -34,6 +34,29 @@ _BASIS_PATTERNS: tuple[tuple[re.Pattern[str], PriceBasis], ...] = (
     (re.compile(r"\blot\b|lump\s*sum|per\s*order|\bflat\b|\btotal\b"), PriceBasis.LOT),
     (re.compile(r"\bpieces?\b|\bpcs?\b|\bunits?\b|\beach\b|\bea\b"), PriceBasis.PER_PIECE),
 )
+
+
+# The first number in a string, allowing thousands separators and a decimal part.
+# Deliberately not "strip everything that is not a digit": that turns
+# "11900 EUR per 1000 pieces" into 119001000, which is a plausible-looking figure
+# nobody would question until the total was four orders of magnitude wrong.
+_FIRST_NUMBER = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
+
+
+def first_number(text: object) -> Decimal | None:
+    """Read the leading numeric value out of printed text.
+
+    Returns None rather than guessing when there is no number to read.
+    """
+    if isinstance(text, int | float | Decimal):
+        return Decimal(str(text))
+    match = _FIRST_NUMBER.search(str(text or ""))
+    if match is None:
+        return None
+    try:
+        return Decimal(match.group(0).replace(",", ""))
+    except InvalidOperation:
+        return None
 
 
 def money(amount: Decimal) -> Decimal:

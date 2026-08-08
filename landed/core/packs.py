@@ -15,9 +15,10 @@ thing to a forwarder and none of them will match a constant.
 from __future__ import annotations
 
 import re
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from .ingest import IngestedDocument
+from .normalize import first_number
 from .schema import CostAssumptions, Money, Source, Sourced
 
 # Documents are attributed to a supplier by filename: quote_a.pdf and profile_a.docx
@@ -199,8 +200,4 @@ def _currency(rows: list[_Row], fallback: str) -> str:
 
 
 def _decimal(text: str) -> Decimal | None:
-    cleaned = re.sub(r"[^\d.\-]", "", text)
-    try:
-        return Decimal(cleaned) if cleaned else None
-    except InvalidOperation:
-        return None
+    return first_number(text)
