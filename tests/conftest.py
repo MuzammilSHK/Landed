@@ -17,13 +17,15 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
+import httpx
 import pytest
 from sqlalchemy import Engine, create_engine, text
-from sqlalchemy.engine import make_url
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from landed.config import settings
+from landed.core import providers
 from landed.db.models import Base, Project, User
 
 TEST_DATABASE = "landed_test"
@@ -32,8 +34,47 @@ UNREACHABLE = (
 )
 
 
-def _test_database_url() -> str:
-    return str(make_url(settings().database_url).set(database=TEST_DATABASE))
+@pytest.fixture(autouse=True)
+def block_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test reaches the internet unless it asks to.
+
+    A developer with a working key in .env would otherwise have provider tests
+    quietly making paid calls — slow, non-deterministic, and billed. Mark a test
+    `@pytest.mark.live` to opt in.
+    """
+    if request.node.get_closest_marker("live"):
+        return
+
+    def refuse(*_args, **_kwargs):
+        raise RuntimeError(
+            "network call attempted in a test; use a stub or mark it @pytest.mark.live"
+        )
+
+    for verb in ("get", "post", "request"):
+        monkeypatch.setattr(httpx, verb, refuse)
+
+
+@pytest.fixture
+def no_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Configuration with no API keys, regardless of what is in .env.
+
+    Built with `model_copy` rather than `Settings(gemini_api_key=None)`: pydantic
+    -settings treats a None passed to the initialiser as "not provided" and falls
+    straight back to the environment.
+    """
+    blank = settings().model_copy(
+        update={"anthropic_api_key": None, "gemini_api_key": None}
+    )
+    monkeypatch.setattr(providers, "settings", lambda: blank)
+
+
+def _test_database_url() -> URL:
+    """The configured server, pointed at a separate test database.
+
+    Returned as a `URL` rather than a string on purpose: `str(URL)` masks the
+    password as `***`, and that literal would then be sent as the password.
+    """
+    return make_url(settings().database_url).set(database=TEST_DATABASE)
 
 
 def _create_test_database_if_absent() -> None:

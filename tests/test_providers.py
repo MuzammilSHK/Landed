@@ -7,6 +7,8 @@ model.
 
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
 from landed.core.providers import (
@@ -20,6 +22,7 @@ from landed.core.providers import (
     build_prompt,
     get_provider,
     parse_payload,
+    redact,
 )
 
 SCHEMA = {"type": "object", "properties": {"unit_price": {"type": "number"}}}
@@ -77,6 +80,35 @@ class TestPayloadParsing:
             parse_payload("[1, 2, 3]")
 
 
+class TestCredentialSafety:
+    def test_key_in_a_url_is_redacted(self) -> None:
+        """httpx puts the request URL in every exception it raises, so an unscrubbed
+        failure is how a key reaches a log file."""
+        leaked = "404 for url 'https://x/models/m:generateContent?key=AQ.Ab8RN6secret'"
+        assert "AQ.Ab8RN6secret" not in redact(leaked)
+        assert "key=REDACTED" in redact(leaked)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "?api_key=sk-ant-abc123",
+            "&token=ghp_supersecret",
+            'url?API-KEY=AIzaAbC"',
+        ],
+    )
+    def test_common_credential_shapes_are_scrubbed(self, text: str) -> None:
+        assert "REDACTED" in redact(text)
+
+    def test_ordinary_text_is_untouched(self) -> None:
+        assert redact("freight terms not stated") == "freight terms not stated"
+
+    def test_gemini_sends_the_key_as_a_header_not_a_query_param(self) -> None:
+        """The structural fix behind the redaction: keep it out of the URL entirely."""
+        source = inspect.getsource(GeminiProvider.extract)
+        assert "x-goog-api-key" in source
+        assert '"key": self._api_key' not in source
+
+
 class TestImageParts:
     def test_image_is_base64_encoded_for_transport(self) -> None:
         assert ImagePart(data=b"\x89PNG").b64() == "iVBORw=="
@@ -100,11 +132,15 @@ class TestProviderResolution:
             get_provider("gpt-9")
 
 
+@pytest.mark.usefixtures("no_credentials")
 class TestMissingCredentials:
+    """Isolated from .env on purpose — a developer with a working key must still see
+    these fail for the right reason."""
+
     def test_anthropic_without_a_key_fails_clearly(self) -> None:
         with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
-            AnthropicProvider(api_key="").extract(request())
+            AnthropicProvider().extract(request())
 
     def test_gemini_without_a_key_fails_clearly(self) -> None:
         with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
-            GeminiProvider(api_key="").extract(request())
+            GeminiProvider().extract(request())

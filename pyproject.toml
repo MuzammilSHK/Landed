@@ -18,7 +18,9 @@ include = ["landed*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --strict-markers"
-markers = ["slow: hits an external API or reads large files"]
+markers = [
+    "live: performs a real network call to a model provider (billed, non-deterministic)",
+]
 
 [tool.ruff]
 line-length = 96
