@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% set registering = mode == "register" %}
+{% block title %}{{ "Create an account" if registering else "Sign in" }} · Landed{% endblock %}
+
+{% block content %}
+<div class="auth">
+  <h1>{{ "Create an account" if registering else "Sign in" }}</h1>
+  <p class="sub">Quotation normalization and landed-cost intelligence.</p>
+
+  {% if error %}<div class="notice error">{{ error }}</div>{% endif %}
+
+  <form method="post" action="{{ '/register' if registering else '/login' }}" class="panel">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <div class="field">
+      <label for="email">Work email</label>
+      <input id="email" name="email" type="email" value="{{ email or '' }}" required autofocus>
+    </div>
+    <div class="field">
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" required
+             minlength="{{ 10 if registering else 1 }}"
+             autocomplete="{{ 'new-password' if registering else 'current-password' }}">
+      {% if registering %}<p class="small muted">At least 10 characters.</p>{% endif %}
+    </div>
+    <button type="submit">{{ "Create account" if registering else "Sign in" }}</button>
+  </form>
+
+  <p class="small muted">
+    {% if registering %}
+      Already have an account? <a href="/login">Sign in</a>.
+    {% else %}
+      No account yet? <a href="/register">Create one</a>.
+    {% endif %}
+  </p>
+</div>
+{% endblock %}

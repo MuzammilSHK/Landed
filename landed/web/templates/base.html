@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Landed{% endblock %}</title>
+  <link rel="stylesheet" href="/static/landed.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/">Landed<span>No cost lands without its evidence</span></a>
+    <div class="spacer"></div>
+    {% if user %}
+      <span class="small muted">{{ user.email }}</span>
+      <form method="post" action="/logout" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <button class="ghost small" type="submit">Sign out</button>
+      </form>
+    {% endif %}
+  </div>
+</header>
+
+<main class="wrap">
+  {% block content %}{% endblock %}
+
+  <footer class="boundary">
+    Decision support only. Landed does not contact suppliers, request quotations,
+    approve vendors, or place orders. Values supplied by a person are marked as
+    assumptions and never presented as evidence from a document.
+  </footer>
+</main>
+</body>
+</html>

@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} · Landed{% endblock %}
+
+{% block content %}
+<h1>{{ project.name }}</h1>
+<p class="sub">
+  {{ project.product_name or "No product named" }} · comparing in {{ project.base_currency }}
+  {% if comparison %}
+    · version {{ comparison.version }} at {{ "{:,}".format(comparison.quantity) }} units
+  {% endif %}
+</p>
+
+<div class="grid two">
+  <div class="panel">
+    <h2>Evidence</h2>
+    {% if documents %}
+      <div class="scroll">
+        <table>
+          <tbody>
+          {% for document in documents %}
+            <tr>
+              <td>
+                {{ document.filename }}
+                <div class="cite">{{ document.sha256[:12] }} · {{ document.byte_size }} bytes</div>
+              </td>
+              <td style="width:1%">
+                <form method="post"
+                      action="/projects/{{ project.id }}/documents/{{ document.id }}/remove">
+                  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+                  <button class="danger small" type="submit">Remove</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="empty small">Nothing uploaded yet. Quotations, supplier profiles, and
+        the assumptions sheet.</p>
+    {% endif %}
+
+    <form method="post" action="/projects/{{ project.id }}/documents"
+          enctype="multipart/form-data" style="margin-top:14px">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <div class="field">
+        <label for="files">Add documents (PDF, Word, Excel, CSV, images)</label>
+        <input id="files" name="files" type="file" multiple required>
+      </div>
+      <button type="submit">Upload</button>
+    </form>
+  </div>
+
+  <div class="panel">
+    <h2>Run a comparison</h2>
+    <form method="post" action="/projects/{{ project.id }}/run">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <div class="field">
+        <label for="quantity">Order quantity</label>
+        <input id="quantity" name="quantity" type="number" min="1" required
+               value="{{ comparison.quantity if comparison else 10000 }}">
+      </div>
+      <button type="submit">Compare suppliers</button>
+      <p class="small muted" style="margin-top:10px">
+        Reading the documents takes a moment. Each run is saved as a new version;
+        earlier ones are never rewritten.
+      </p>
+    </form>
+
+    {% if versions|length > 1 %}
+      <h2 style="margin-top:20px">Versions</h2>
+      <form method="get" action="/projects/{{ project.id }}/diff">
+        <div class="row">
+          <div>
+            <label for="base">Compare</label>
+            <select id="base" name="base">
+              {% for entry in versions %}
+                <option value="{{ entry.version }}"
+                  {% if loop.index == 2 %}selected{% endif %}>v{{ entry.version }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label for="target">against</label>
+            <select id="target" name="target">
+              {% for entry in versions %}
+                <option value="{{ entry.version }}"
+                  {% if loop.first %}selected{% endif %}>v{{ entry.version }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div style="flex:0"><button class="ghost" type="submit">Show changes</button></div>
+        </div>
+      </form>
+    {% endif %}
+  </div>
+</div>
+
+{% if comparison %}
+  {% set blocked = results | rejectattr("breakdown") | list %}
+
+  <div class="panel">
+    <h2>Suppliers</h2>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Supplier</th><th>State</th>
+            <th class="num">Per unit</th><th class="num">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for result in results %}
+          <tr>
+            <td>
+              <strong>{{ result.supplier_name or result.supplier_id }}</strong>
+              <div class="cite">{{ result.supplier_id }}</div>
+            </td>
+            <td>
+              <span class="state {{ result.state }}">{{ STATE_LABEL[result.state] }}</span>
+              <div class="small muted">{{ STATE_HINT[result.state] }}</div>
+            </td>
+            {% if result.breakdown %}
+              <td class="num mono">{{ result.breakdown.per_unit.value | money }}</td>
+              <td class="num mono">{{ result.breakdown.total.value | money }}</td>
+            {% else %}
+              <td class="num withheld">—</td>
+              <td class="num withheld">—</td>
+            {% endif %}
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="small muted" style="margin-top:10px">
+      {{ results | selectattr("breakdown") | list | length }} of {{ results | length }}
+      suppliers are comparable. A supplier we declined to cost shows no number —
+      a figure on screen is a figure someone will act on.
+    </p>
+  </div>
+
+  {% if blocked %}
+    <div class="panel">
+      <h2>Why these cannot be compared yet</h2>
+      {% for result in blocked %}
+        <h3>{{ result.supplier_name or result.supplier_id }}</h3>
+        {% for conflict in result.conflicts if conflict.blocks_total and not conflict.resolved_with %}
+          <div class="conflict">
+            <p>{{ conflict.message }}</p>
+            {# Subscript, not conflict.values: these come back from JSONB as dicts,
+               and dict.values is a method that would shadow the key. #}
+            {% if conflict["values"] %}
+              <div class="values">
+                {% for value in conflict["values"] %}<span>{{ value }}</span>{% endfor %}
+              </div>
+            {% endif %}
+            {% for source in conflict.sources %}
+              <div class="cite">{{ source | cite }}{% if source.excerpt %}
+                — “{{ source.excerpt }}”{% endif %}</div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+        {% if result.refusal and result.refusal.missing_fields %}
+          {% include "_resolve_form.html" %}
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% set advisories = [] %}
+  {% for result in results %}
+    {% for conflict in result.conflicts if not conflict.blocks_total %}
+      {% set _ = advisories.append((result, conflict)) %}
+    {% endfor %}
+  {% endfor %}
+  {% if advisories %}
+    <div class="panel">
+      <h2>Worth a second look</h2>
+      {% for result, conflict in advisories %}
+        <div class="conflict advisory">
+          <p><strong>{{ result.supplier_name or result.supplier_id }}</strong>
+            — {{ conflict.message }}</p>
+          {% for source in conflict.sources %}
+            <div class="cite">{{ source | cite }}</div>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% for result in results if result.breakdown %}
+    {% if loop.first %}
+      <div class="panel">
+        <h2>Lowest landed cost — {{ result.supplier_name or result.supplier_id }}</h2>
+        <div class="scroll">
+          <table>
+            <tbody>
+            {% for label, key in [
+                ("Goods", "goods"), ("Tooling (amortized)", "tooling_amortized"),
+                ("Freight", "freight"), ("Insurance", "insurance"),
+                ("Duty", "duty"), ("Financing", "financing")] %}
+              {% set term = result.breakdown[key] %}
+              <tr>
+                <td>{{ label }}</td>
+                <td class="num mono">{{ term.value | money }}</td>
+                <td class="small muted">{{ term.note or "" }}</td>
+              </tr>
+            {% endfor %}
+              <tr>
+                <td><strong>Total</strong></td>
+                <td class="num mono"><strong>{{ result.breakdown.total.value | money }}</strong></td>
+                <td class="small muted">{{ comparison.currency }}</td>
+              </tr>
+              <tr>
+                <td><strong>Per unit</strong></td>
+                <td class="num mono"><strong>{{ result.breakdown.per_unit.value | money }}</strong></td>
+                <td class="small muted">at {{ "{:,}".format(comparison.quantity) }} units</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% endif %}
+  {% endfor %}
+{% else %}
+  <div class="panel empty">
+    <p>No comparison yet.</p>
+    <p class="small">Upload the documents you have been sent, then run a comparison.</p>
+  </div>
+{% endif %}
+
+{% if history %}
+  <div class="panel">
+    <h2>Decisions on record</h2>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>Supplier</th><th>Field</th><th>Value</th><th>Who</th><th></th></tr>
+        </thead>
+        <tbody>
+        {% for entry in history %}
+          <tr {% if not entry.is_active %}class="muted"{% endif %}>
+            <td>{{ entry.supplier_id }}</td>
+            <td>{{ entry.field_path }}</td>
+            <td class="mono">
+              {{ entry.payload.get("value", "") }}
+              {% if entry.payload.get("chosen_file") %}
+                <div class="cite">chose {{ entry.payload["chosen_file"] }}</div>
+              {% endif %}
+            </td>
+            <td class="small">
+              {{ entry.actor_email }}
+              {% if entry.rationale %}<div class="cite">{{ entry.rationale }}</div>{% endif %}
+            </td>
+            <td style="width:1%">
+              {% if entry.is_active %}
+                <form method="post"
+                      action="/projects/{{ project.id }}/resolutions/{{ entry.id }}/revert">
+                  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+                  <button class="danger small" type="submit">Withdraw</button>
+                </form>
+              {% else %}
+                <span class="small muted">withdrawn</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="small muted" style="margin-top:10px">
+      Withdrawing keeps the record. A report issued under an assumption has to stay
+      explainable afterwards.
+    </p>
+  </div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}v{{ diff.from_version }} → v{{ diff.to_version }} · Landed{% endblock %}
+
+{% block content %}
+<h1>{{ project.name }}</h1>
+<p class="sub">What changed between version {{ diff.from_version }} and
+  version {{ diff.to_version }}.</p>
+
+{% if diff.recommendation_changed %}
+  <div class="flip">
+    <strong>The recommendation moved.</strong>
+    {{ diff.previous_recommendation or "nothing comparable" }} →
+    {{ diff.current_recommendation or "nothing comparable" }}
+  </div>
+{% endif %}
+
+{% if diff.moved %}
+  <div class="panel">
+    <h2>Suppliers that moved</h2>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Supplier</th><th>State</th>
+            <th class="num">Was</th><th class="num">Now</th><th class="num">Change</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for change in diff.moved %}
+          <tr>
+            <td>
+              <strong>{{ change.supplier_name or change.supplier_id }}</strong>
+              {% if change.is_new %}<div class="cite">new in this version</div>{% endif %}
+              {% if change.is_gone %}<div class="cite">no longer present</div>{% endif %}
+            </td>
+            <td>
+              {% if change.previous_state != change.current_state %}
+                <span class="state {{ change.previous_state or 'not_landed' }}">
+                  {{ STATE_LABEL.get(change.previous_state, "absent") }}</span>
+                →
+                <span class="state {{ change.current_state or 'not_landed' }}">
+                  {{ STATE_LABEL.get(change.current_state, "absent") }}</span>
+              {% else %}
+                <span class="state {{ change.current_state }}">
+                  {{ STATE_LABEL.get(change.current_state, "absent") }}</span>
+              {% endif %}
+            </td>
+            <td class="num mono">{{ change.previous_per_unit | money }}</td>
+            <td class="num mono">{{ change.current_per_unit | money }}</td>
+            <td class="num mono {{ 'delta up' if change.delta and change.delta > 0
+                                   else 'delta down' if change.delta else '' }}">
+              {% if change.delta %}
+                {{ change.delta | signed }}
+                <div class="cite">{{ change.delta_percent | percent }}</div>
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% for change in diff.moved if change.resolved_conflicts or change.new_conflicts %}
+    {% if loop.first %}<div class="panel"><h2>Conflicts</h2>{% endif %}
+      <h3>{{ change.supplier_name or change.supplier_id }}</h3>
+      {% for message in change.resolved_conflicts %}
+        <div class="conflict advisory"><p>Resolved — {{ message }}</p></div>
+      {% endfor %}
+      {% for message in change.new_conflicts %}
+        <div class="conflict"><p>New — {{ message }}</p></div>
+      {% endfor %}
+    {% if loop.last %}</div>{% endif %}
+  {% endfor %}
+{% else %}
+  <div class="panel empty">
+    <p>Nothing moved between these two versions.</p>
+    <p class="small">Same states, same totals, same open conflicts.</p>
+  </div>
+{% endif %}
+
+<a class="btn ghost" href="/projects/{{ project.id }}">Back to the project</a>
+{% endblock %}

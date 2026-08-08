@@ -1,0 +1,37 @@
+{# Supply a value no document states. Recorded as an assumption against the person
+   who supplied it, applied on the next run, and never written as evidence. #}
+<form method="post" action="/projects/{{ project.id }}/resolve" style="margin-bottom:18px">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <input type="hidden" name="supplier_id" value="{{ result.supplier_id }}">
+  <div class="row">
+    <div>
+      <label for="field-{{ result.supplier_id }}">Supply what is missing</label>
+      <select id="field-{{ result.supplier_id }}" name="field_path">
+        {% for field in result.refusal.missing_fields %}
+          <option value="{{ field }}">{{ field.replace("_", " ") }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="value-{{ result.supplier_id }}">Value</label>
+      <input id="value-{{ result.supplier_id }}" name="value" required
+             placeholder="e.g. FOB Ningbo, or 2400">
+    </div>
+    <div style="max-width:110px">
+      <label for="currency-{{ result.supplier_id }}">Currency</label>
+      <input id="currency-{{ result.supplier_id }}" name="currency"
+             maxlength="3" value="{{ project.base_currency }}">
+    </div>
+    <div>
+      <label for="why-{{ result.supplier_id }}">Where it came from</label>
+      <input id="why-{{ result.supplier_id }}" name="rationale"
+             placeholder="confirmed with supplier by email">
+    </div>
+    <div style="flex:0"><button type="submit">Record</button></div>
+  </div>
+  <p class="small muted" style="margin-top:8px">
+    Recorded as your assumption, shown as one everywhere it appears, and reversible.
+    It takes effect on the next run — the version a report was issued from is never
+    altered after the fact.
+  </p>
+</form>

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Projects · Landed{% endblock %}
+
+{% block content %}
+<h1>Your sourcing projects</h1>
+<p class="sub">Each project holds its own documents, comparison versions, and decisions.</p>
+
+<div class="panel">
+  <h2>New project</h2>
+  <form method="post" action="/projects">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <div class="row">
+      <div>
+        <label for="name">Project name</label>
+        <input id="name" name="name" required placeholder="Q3 Enclosure Sourcing">
+      </div>
+      <div>
+        <label for="product_name">Product</label>
+        <input id="product_name" name="product_name" placeholder="ALU-ENC-140">
+      </div>
+      <div style="max-width:120px">
+        <label for="base_currency">Currency</label>
+        <input id="base_currency" name="base_currency" value="USD" maxlength="3">
+      </div>
+      <div style="flex:0"><button type="submit">Create</button></div>
+    </div>
+  </form>
+</div>
+
+{% if projects %}
+  <div class="grid cards">
+    {% for project in projects %}
+      {% set summary = summaries[project.id] %}
+      <a class="panel" href="/projects/{{ project.id }}" style="display:block">
+        <h3>{{ project.name }}</h3>
+        <p class="small muted">
+          {{ project.product_name or "No product named" }} · {{ project.base_currency }}
+        </p>
+        {% if summary.version %}
+          <p class="small">
+            <strong>{{ summary.landed }} of {{ summary.total }}</strong> comparable
+            <span class="muted">· version {{ summary.version }}
+              at {{ "{:,}".format(summary.quantity) }} units</span>
+          </p>
+        {% else %}
+          <p class="small muted">Not yet compared</p>
+        {% endif %}
+      </a>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="panel empty">
+    <p>No projects yet.</p>
+    <p class="small">Create one above, then upload the quotations you have been sent.</p>
+  </div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,201 @@
+/* Landed — one stylesheet, no CDN.
+   A dashboard someone may run offline should not depend on a network fetch to look
+   like anything. Dark and light both supported; the palette is deliberately quiet so
+   the three states carry the only strong colour on the page. */
+
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --ink: #16191d;
+  --muted: #646c78;
+  --line: #e3e6ea;
+  --accent: #1f4fd8;
+  --landed: #17794b;
+  --landed-bg: #e6f4ec;
+  --contested: #9a6400;
+  --contested-bg: #fdf1dc;
+  --blocked: #a52222;
+  --blocked-bg: #fbeaea;
+  --radius: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171b;
+    --panel: #1b1f24;
+    --ink: #e8eaed;
+    --muted: #98a1ad;
+    --line: #2b3138;
+    --accent: #6d95ff;
+    --landed: #5fc99a;
+    --landed-bg: #163024;
+    --contested: #e0ae5c;
+    --contested-bg: #33280f;
+    --blocked: #f08a8a;
+    --blocked-bg: #341b1b;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.55 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px 64px; }
+
+/* ---- header ---- */
+header.top {
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  margin-bottom: 28px;
+}
+header.top .wrap {
+  display: flex; align-items: center; gap: 16px;
+  padding-top: 14px; padding-bottom: 14px;
+}
+.brand { font-weight: 700; letter-spacing: -0.02em; font-size: 18px; color: var(--ink); }
+.brand span { color: var(--muted); font-weight: 400; margin-left: 10px; font-size: 13px; }
+.spacer { flex: 1; }
+
+/* ---- typography ---- */
+h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.02em; }
+h2 { font-size: 15px; margin: 0 0 12px; text-transform: uppercase;
+     letter-spacing: 0.06em; color: var(--muted); }
+h3 { font-size: 15px; margin: 0 0 8px; }
+.sub { color: var(--muted); margin: 0 0 22px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
+.num { font-variant-numeric: tabular-nums; text-align: right; }
+
+/* ---- panels ---- */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-bottom: 20px;
+}
+.grid { display: grid; gap: 20px; }
+.grid.two { grid-template-columns: 1fr 1fr; }
+.grid.cards { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+@media (max-width: 760px) { .grid.two { grid-template-columns: 1fr; } }
+
+/* ---- tables ---- */
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left; font-size: 12px; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--muted); font-weight: 600;
+  padding: 6px 10px; border-bottom: 1px solid var(--line);
+}
+td { padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+.scroll { overflow-x: auto; }
+
+/* ---- the three states ---- */
+.state {
+  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; white-space: nowrap;
+}
+.state.landed { color: var(--landed); background: var(--landed-bg); }
+.state.contested { color: var(--contested); background: var(--contested-bg); }
+.state.not_landed { color: var(--blocked); background: var(--blocked-bg); }
+
+/* A blocked supplier shows a dash, never a number. */
+.withheld { color: var(--muted); }
+
+/* ---- provenance ---- */
+.cite {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px; color: var(--muted);
+}
+.assumed {
+  border-left: 3px solid var(--contested);
+  padding-left: 8px;
+}
+.assumed-tag {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--contested); font-weight: 700;
+}
+
+/* ---- conflicts ---- */
+.conflict {
+  border-left: 3px solid var(--blocked);
+  background: var(--blocked-bg);
+  padding: 10px 12px; border-radius: 0 6px 6px 0; margin-bottom: 10px;
+}
+.conflict.advisory {
+  border-left-color: var(--contested); background: var(--contested-bg);
+}
+.conflict p { margin: 0 0 6px; }
+.conflict .values { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+.conflict .values span {
+  background: var(--panel); border: 1px solid var(--line);
+  padding: 2px 8px; border-radius: 4px; font-size: 13px;
+}
+
+/* ---- forms ---- */
+label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+input, select, textarea {
+  width: 100%; padding: 8px 10px; font: inherit;
+  color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px;
+}
+input:focus, select:focus, textarea:focus {
+  outline: 2px solid var(--accent); outline-offset: -1px;
+}
+.row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+.row > * { flex: 1; min-width: 140px; }
+.field { margin-bottom: 12px; }
+
+button, .btn {
+  font: inherit; font-weight: 600; cursor: pointer;
+  padding: 8px 14px; border-radius: 6px;
+  border: 1px solid var(--accent); background: var(--accent); color: #fff;
+  white-space: nowrap;
+}
+button.ghost, .btn.ghost {
+  background: transparent; color: var(--ink); border-color: var(--line);
+}
+button.danger { background: transparent; color: var(--blocked); border-color: var(--line); }
+button:hover { filter: brightness(1.06); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+.inline { display: inline; }
+
+/* ---- notices ---- */
+.notice {
+  border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  background: var(--panel); padding: 10px 12px;
+  border-radius: 0 6px 6px 0; margin-bottom: 16px;
+}
+.notice.error { border-left-color: var(--blocked); color: var(--blocked); }
+.empty { color: var(--muted); padding: 22px 0; text-align: center; }
+
+/* ---- auth ---- */
+.auth { max-width: 380px; margin: 72px auto; }
+
+/* ---- diff ---- */
+.delta.up { color: var(--blocked); }
+.delta.down { color: var(--landed); }
+.flip {
+  border-left: 3px solid var(--accent); background: var(--panel);
+  padding: 12px 14px; border-radius: 0 6px 6px 0; margin-bottom: 16px;
+}
+
+/* ---- footer ---- */
+footer.boundary {
+  border-top: 1px solid var(--line); margin-top: 40px; padding-top: 16px;
+  color: var(--muted); font-size: 13px;
+}
+
+/* HTMX shows this while a request is in flight. */
+.htmx-indicator { display: none; }
+.htmx-request .htmx-indicator { display: inline; }
+.htmx-request.htmx-indicator { display: inline; }
