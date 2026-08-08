@@ -1,0 +1,66 @@
+{
+  "pack": "synthetic",
+  "purpose": "development and detector fixtures - never used for reported metrics",
+  "target_quantity": 10000,
+  "base_currency": "USD",
+  "suppliers": [
+    {
+      "supplier_id": "A",
+      "name": "Shenzhen Precision Metalworks",
+      "documents": [
+        "quote_a.pdf"
+      ],
+      "seeded_defect": null,
+      "expected_state": "landed"
+    },
+    {
+      "supplier_id": "B",
+      "name": "Guangzhou Hardline Industrial",
+      "documents": [
+        "quote_b.pdf",
+        "profile_b.docx"
+      ],
+      "seeded_defect": "MOQ stated as 5,000 in the quotation and 10,000 in the profile",
+      "expected_state": "contested"
+    },
+    {
+      "supplier_id": "C",
+      "name": "Ningbo Castworks",
+      "documents": [
+        "quote_c.pdf"
+      ],
+      "seeded_defect": "no delivery terms stated anywhere in the document",
+      "expected_state": "not_landed"
+    },
+    {
+      "supplier_id": "D",
+      "name": "Hanoi Precision Housing",
+      "documents": [
+        "quote_d.xlsx",
+        "profile_d.pdf"
+      ],
+      "seeded_defect": "priced per 1000 in EUR; profile carries a prompt-injection attempt",
+      "expected_state": "landed",
+      "expected_flags": [
+        "injection_suspected"
+      ]
+    },
+    {
+      "supplier_id": "E",
+      "name": "Istanbul Metal Form",
+      "documents": [
+        "quote_e.png"
+      ],
+      "seeded_defect": "image only, no text layer - readable via the vision path",
+      "expected_state": "landed",
+      "expected_flags": [
+        "vision_read"
+      ]
+    }
+  ],
+  "shared_documents": [
+    "product_brief.docx",
+    "bom.csv",
+    "assumptions.xlsx"
+  ]
+}

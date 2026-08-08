@@ -1,0 +1,4 @@
+line,part_number,description,qty_per_unit,material
+1,ALU-ENC-140-BODY,"Extruded body, anodised",1,Aluminium 6063
+2,ALU-ENC-140-LID,Stamped lid,1,Aluminium 5052
+3,FAS-M3-8,"M3x8 screw, stainless",4,SS304
