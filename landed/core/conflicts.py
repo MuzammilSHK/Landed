@@ -37,6 +37,8 @@ PRICE_OUTLIER_RATIO = Decimal(100)
 
 _FIELD_LABELS = {
     "unit_price": "unit price",
+    "moq": "minimum order quantity",
+    "lead_time_days": "production lead time",
     "price_basis": "pricing basis (per piece, per 1000, per kg)",
     "currency": "currency",
     "incoterm": "delivery terms (Incoterm)",
@@ -110,15 +112,10 @@ def detect_contradictions(
     conflicts: list[Conflict] = []
     first = quote.line_items[0] if quote.line_items else None
     pairs = (
-        ("moq", "minimum order quantity", first.moq if first else None, profile.moq),
-        (
-            "lead_time_days",
-            "production lead time",
-            first.lead_time_days if first else None,
-            profile.lead_time_days,
-        ),
+        ("moq", first.moq if first else None, profile.moq),
+        ("lead_time_days", first.lead_time_days if first else None, profile.lead_time_days),
     )
-    for path, label, quoted, stated in pairs:
+    for path, quoted, stated in pairs:
         if quoted is None or stated is None or quoted.value == stated.value:
             continue
         conflicts.append(
@@ -126,7 +123,7 @@ def detect_contradictions(
                 kind=ConflictKind.CONTRADICTION,
                 field_path=path,
                 message=(
-                    f"{label} disagrees: quotation states {quoted.value}, "
+                    f"{_FIELD_LABELS[path]} disagrees: quotation states {quoted.value}, "
                     f"supplier profile states {stated.value}"
                 ),
                 sources=[s for s in (quoted.source, stated.source) if s],
@@ -226,7 +223,7 @@ def detect_vision_reads(quote: Quotation) -> list[Conflict]:
     Advisory, never blocking: worth a second look, not worth withholding a total.
     """
     flagged = [
-        (f"line_items[{i}].{name}", field)
+        (f"line_items[{i}].{name}", name, field)
         for i, item in enumerate(quote.line_items)
         for name, field in (("unit_price", item.unit_price), ("moq", item.moq))
         if field is not None and field.needs_verification
@@ -236,14 +233,14 @@ def detect_vision_reads(quote: Quotation) -> list[Conflict]:
             kind=ConflictKind.VISION_READ,
             field_path=path,
             message=(
-                f"read from a scanned image on page {field.source.page} — "
-                f"verify against the source"
+                f"{_FIELD_LABELS.get(name, name)} read from a scanned image on page "
+                f"{field.source.page} — verify against the source"
             ),
             sources=[field.source] if field.source else [],
             values=[str(field.value)],
             blocks_total=False,
         )
-        for path, field in flagged
+        for path, name, field in flagged
     ]
 
 

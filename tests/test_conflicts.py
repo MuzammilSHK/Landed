@@ -10,6 +10,8 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 
+import pytest
+
 from landed.core.conflicts import (
     annotate,
     detect_ambiguous_basis,
@@ -20,6 +22,7 @@ from landed.core.conflicts import (
     detect_undated_currency,
     detect_vision_reads,
 )
+from landed.core.normalize import parse_price_basis
 from landed.core.schema import (
     Attribution,
     Conflict,
@@ -148,6 +151,38 @@ class TestContradictions:
 
     def test_profile_silent_on_a_field_is_not_a_disagreement(self) -> None:
         assert detect_contradictions(quote(moq=5_000), SupplierProfile(supplier_id="B")) == []
+
+
+class TestBasisParsing:
+    """A live model returned 'piece' one call and 'per piece' the next. Both, plus the
+    canonical 'per_piece', have to reach the same place."""
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("per piece", PriceBasis.PER_PIECE),
+            ("piece", PriceBasis.PER_PIECE),
+            ("per_piece", PriceBasis.PER_PIECE),
+            ("PCS", PriceBasis.PER_PIECE),
+            ("each", PriceBasis.PER_PIECE),
+            ("per 1000 pieces", PriceBasis.PER_1000),
+            ("per_1000", PriceBasis.PER_1000),
+            ("thousand", PriceBasis.PER_1000),
+            ("per kg", PriceBasis.PER_KG),
+            ("per_kg", PriceBasis.PER_KG),
+            ("lot", PriceBasis.LOT),
+            ("lump sum", PriceBasis.LOT),
+        ],
+    )
+    def test_basis_forms_all_resolve(self, text: str, expected: PriceBasis) -> None:
+        assert parse_price_basis(text) is expected
+
+    def test_thousand_wins_over_the_piece_it_contains(self) -> None:
+        """'per 1000 pieces' must not read as per-piece — that is the 1000x error."""
+        assert parse_price_basis("per 1000 pieces") is PriceBasis.PER_1000
+
+    def test_unrecognised_basis_is_not_guessed(self) -> None:
+        assert parse_price_basis("to be agreed") is None
 
 
 class TestUndatedCurrency:

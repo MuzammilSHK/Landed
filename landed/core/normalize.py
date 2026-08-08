@@ -22,11 +22,17 @@ CENTS = Decimal("0.01")
 
 _INCOTERM_TOKEN = re.compile(r"\b([A-Z]{3})\b")
 
+# Order matters: "per 1000 pieces" is per-thousand, and it contains "piece".
+#
+# None of these require a leading "per". A quotation says "per piece", a model asked
+# for a basis may answer "piece" or "per_piece", and a spreadsheet column header often
+# says only "PCS" — all three mean the same thing, and rejecting two of them turns a
+# priced quote into a refusal.
 _BASIS_PATTERNS: tuple[tuple[re.Pattern[str], PriceBasis], ...] = (
-    (re.compile(r"per\s*(1[,.]?000|thousand|k\b)|/\s*m\b|per\s*m\b"), PriceBasis.PER_1000),
-    (re.compile(r"per\s*kg|/\s*kg|per\s*kilo"), PriceBasis.PER_KG),
-    (re.compile(r"\blot\b|lump\s*sum|per\s*order|\bflat\b"), PriceBasis.LOT),
-    (re.compile(r"per\s*(piece|pc|pcs|unit|ea\b)|\beach\b|\bea\b"), PriceBasis.PER_PIECE),
+    (re.compile(r"1[,. ]?000|thousand|\bm\b|\bk\b"), PriceBasis.PER_1000),
+    (re.compile(r"\bkgs?\b|kilo"), PriceBasis.PER_KG),
+    (re.compile(r"\blot\b|lump\s*sum|per\s*order|\bflat\b|\btotal\b"), PriceBasis.LOT),
+    (re.compile(r"\bpieces?\b|\bpcs?\b|\bunits?\b|\beach\b|\bea\b"), PriceBasis.PER_PIECE),
 )
 
 
@@ -55,7 +61,9 @@ def parse_price_basis(text: str | None) -> PriceBasis | None:
     """
     if not text:
         return None
-    lowered = text.lower()
+    # Underscores become spaces so canonical values ("per_1000") and prose ("per
+    # 1000 pieces") take the same path.
+    lowered = text.lower().replace("_", " ")
     for pattern, basis in _BASIS_PATTERNS:
         if pattern.search(lowered):
             return basis
