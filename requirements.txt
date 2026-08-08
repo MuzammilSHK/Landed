@@ -1,0 +1,21 @@
+# Landed — pinned dependencies
+# Regenerate a full lockfile before submission:  pip freeze > requirements.lock.txt
+
+# --- Core ---
+pydantic==2.9.2              # schema contract + validation
+python-dotenv==1.0.1
+
+# --- Document ingestion ---
+pdfplumber==0.11.4           # PDF text + per-page anchors (needed for citations)
+openpyxl==3.1.5              # .xlsx quotations
+pandas==2.2.3
+
+# --- Extraction (LLM) ---
+anthropic==0.39.0            # structured extraction; arithmetic never touches this
+
+# --- UI ---
+streamlit==1.39.0
+plotly==5.24.1               # break-even chart
+
+# --- Evaluation ---
+pytest==8.3.3

@@ -1,0 +1,49 @@
+# ---------------------------------------------------------------------------
+# Challenge pack — NEVER commit organizer-supplied data.
+# The brief forbids uploading case materials to unapproved external services.
+# We track the MANIFEST (version + SHA-256 + file list) instead, which proves
+# which data version we ran against without redistributing the data itself.
+# ---------------------------------------------------------------------------
+packs/official/*
+!packs/official/.gitkeep
+!packs/official/README.md
+
+# Synthetic dev pack is ours and IS tracked — it is not organizer data.
+# (no ignore rule for packs/synthetic/)
+
+# Secrets
+.env
+.env.local
+*.key
+credentials.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Results — keep the directory and the committed scoring outputs,
+# ignore bulky intermediate artifacts.
+results/**/*.pkl
+results/**/*.parquet
+results/cache/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
