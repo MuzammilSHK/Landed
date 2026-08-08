@@ -21,11 +21,12 @@ from .cost_engine import compute
 from .extract import extract_profile, extract_quotation
 from .ingest import IngestedDocument, ingest_pack
 from .packs import SupplierDocuments, find_assumptions, group_by_supplier, load_assumptions
-from .providers import Provider, get_provider
+from .providers import Provider, ProviderError, RateLimited, get_provider
 from .resolutions import HumanResolution
 from .resolutions import apply as apply_resolutions
 from .schema import (
     Conflict,
+    ConflictKind,
     CostAssumptions,
     CostBreakdown,
     CostResult,
@@ -143,21 +144,51 @@ def compare_documents(
 def _extract_supplier(
     bundle: SupplierDocuments, provider: Provider
 ) -> tuple[Quotation, SupplierProfile | None, list[Conflict], dict[str, dict]]:
+    """Read one supplier's documents.
+
+    A provider failure is recorded against that supplier rather than raised. Losing
+    an entire comparison because one document hit a rate limit would throw away the
+    work already done on every other supplier.
+    """
     document = bundle.quotations[0]
-    quotation, conflicts, payload = extract_quotation(
-        document, bundle.supplier_id, provider
-    )
+    try:
+        quotation, conflicts, payload = extract_quotation(
+            document, bundle.supplier_id, provider
+        )
+    except ProviderError as failure:
+        return (
+            Quotation(supplier_id=bundle.supplier_id),
+            None,
+            [_unread_conflict(document.filename, failure)],
+            {},
+        )
     payloads = {document.filename: payload}
 
     profile: SupplierProfile | None = None
     for profile_document in bundle.profiles:
-        profile, profile_conflicts, profile_payload = extract_profile(
-            profile_document, bundle.supplier_id, provider
-        )
+        try:
+            profile, profile_conflicts, profile_payload = extract_profile(
+                profile_document, bundle.supplier_id, provider
+            )
+        except ProviderError as failure:
+            # The quotation was read; only the profile was not. Costing can still
+            # proceed, but the contradiction check it would have enabled cannot.
+            conflicts.append(_unread_conflict(profile_document.filename, failure))
+            continue
         conflicts.extend(profile_conflicts)
         payloads[profile_document.filename] = profile_payload
 
     return quotation, profile, conflicts, payloads
+
+
+def _unread_conflict(filename: str, failure: ProviderError) -> Conflict:
+    kind = "rate limit" if isinstance(failure, RateLimited) else "extraction error"
+    return Conflict(
+        kind=ConflictKind.EXTRACTION_FAILED,
+        field_path="document",
+        message=f"{filename} could not be read ({kind}). Retry the comparison.",
+        values=[str(failure)[:200]],
+    )
 
 
 def _cost_supplier(
@@ -170,6 +201,17 @@ def _cost_supplier(
     assumptions: CostAssumptions,
     resolutions: list[HumanResolution],
 ) -> SupplierOutcome:
+    if any(c.kind is ConflictKind.EXTRACTION_FAILED for c in found):
+        # Skip detection entirely. Annotating a document nobody managed to open
+        # would report every field as "not stated", which is a lie about it.
+        unread = quotation.model_copy(update={"conflicts": found})
+        return SupplierOutcome(
+            supplier_id=quotation.supplier_id,
+            quotation=unread,
+            result=_refuse(unread),
+            raw_payloads=payloads,
+        )
+
     annotated = annotate(
         quotation,
         quantity,
@@ -204,11 +246,15 @@ def _refuse(quotation: Quotation) -> Refusal:
     Costing it anyway and hiding the total behind a badge would leave a number on
     screen that nobody should act on.
     """
-    reason = (
-        "cannot issue a total until these are supplied"
-        if quotation.missing
-        else "sources disagree; no total until the conflict is resolved"
-    )
+    unread = [
+        c for c in quotation.open_conflicts if c.kind is ConflictKind.EXTRACTION_FAILED
+    ]
+    if unread:
+        reason = unread[0].message
+    elif quotation.missing:
+        reason = "cannot issue a total until these are supplied"
+    else:
+        reason = "sources disagree; no total until the conflict is resolved"
     return Refusal(
         supplier_id=quotation.supplier_id,
         reason=reason,

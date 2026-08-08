@@ -154,6 +154,7 @@ class ConflictKind(str, Enum):
     STALE_QUOTE = "stale_quote"
     VISION_READ = "vision_read"              # advisory: verify against the image
     INJECTION_SUSPECTED = "injection_suspected"
+    EXTRACTION_FAILED = "extraction_failed"  # the document was never successfully read
 
 
 class Conflict(BaseModel):
@@ -209,7 +210,12 @@ class Quotation(BaseModel):
 
     @property
     def state(self) -> QuoteState:
-        if self.missing:
+        # A document nobody managed to read is NOT LANDED, not CONTESTED. Contested
+        # means two sources disagree, and claiming that about a file we never opened
+        # would misdescribe the problem to the person who has to fix it.
+        if self.missing or any(
+            c.kind is ConflictKind.EXTRACTION_FAILED and c.is_open for c in self.conflicts
+        ):
             return QuoteState.NOT_LANDED
         if any(c.blocks_total and c.is_open for c in self.conflicts):
             return QuoteState.CONTESTED

@@ -18,6 +18,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+import time
 from typing import Protocol
 
 import httpx
@@ -95,6 +96,18 @@ def redact(text: str) -> str:
     return CREDENTIAL_PATTERN.sub(r"\1=REDACTED", text)
 
 
+class ProviderError(RuntimeError):
+    """The model could not be reached or refused the request."""
+
+
+class RateLimited(ProviderError):
+    """Quota exhausted. Worth retrying; not worth failing a whole comparison over."""
+
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
 def _raise_for_status(response: httpx.Response) -> None:
     """`raise_for_status` with the URL scrubbed.
 
@@ -104,10 +117,31 @@ def _raise_for_status(response: httpx.Response) -> None:
     if response.is_success:
         return
     detail = redact(response.text[:400].replace("\n", " "))
-    raise RuntimeError(
+    message = (
         f"{response.status_code} from {response.request.url.host}"
         f"{response.request.url.path}: {detail}"
     )
+    if response.status_code == 429:
+        header = response.headers.get("retry-after")
+        raise RateLimited(message, float(header) if header and header.isdigit() else None)
+    raise ProviderError(message)
+
+
+def with_retries(call, attempts: int = 3, base_delay: float = 4.0):
+    """Retry a rate-limited call with exponential backoff.
+
+    Only 429 is retried. A malformed request or a bad key will fail identically on
+    the second attempt, and retrying it just spends more of a quota that is already
+    the constraint.
+    """
+    for attempt in range(attempts):
+        try:
+            return call()
+        except RateLimited as limited:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(limited.retry_after or base_delay * (2**attempt))
+    raise AssertionError("unreachable")
 
 
 def build_prompt(request: ExtractionRequest) -> str:
@@ -208,18 +242,21 @@ class GeminiProvider:
         # Header auth, not `?key=`. httpx puts the full URL in every exception it
         # raises, so a key in the query string ends up in logs, stored error records,
         # and anything shown to a user on failure.
-        response = httpx.post(
-            f"{self.endpoint}/{self.model}:generateContent",
-            headers={"x-goog-api-key": self._api_key},
-            json={
-                "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
-                "contents": [{"parts": parts}],
-                "generationConfig": {"responseMimeType": "application/json"},
-            },
-            timeout=120,
-        )
-        _raise_for_status(response)
-        body = response.json()
+        def send() -> httpx.Response:
+            reply = httpx.post(
+                f"{self.endpoint}/{self.model}:generateContent",
+                headers={"x-goog-api-key": self._api_key},
+                json={
+                    "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+                    "contents": [{"parts": parts}],
+                    "generationConfig": {"responseMimeType": "application/json"},
+                },
+                timeout=120,
+            )
+            _raise_for_status(reply)
+            return reply
+
+        body = with_retries(send).json()
         text = body["candidates"][0]["content"]["parts"][0]["text"]
         return ExtractionResponse(
             payload=parse_payload(text),

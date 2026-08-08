@@ -18,7 +18,7 @@ import pytest
 
 from landed.core.packs import group_by_supplier, load_assumptions, supplier_id_from_filename
 from landed.core.pipeline import compare_pack
-from landed.core.providers import ExtractionRequest, ExtractionResponse
+from landed.core.providers import ExtractionRequest, ExtractionResponse, RateLimited
 from landed.core.schema import ConflictKind, QuoteState
 
 PACK = Path(__file__).resolve().parents[1] / "packs" / "synthetic"
@@ -220,6 +220,41 @@ class TestCosting:
 
     def test_comparable_count_is_reported(self, outcome) -> None:
         assert outcome.comparable_count == "3 of 5"
+
+
+class TestProviderFailure:
+    """One document failing must not cost the work done on every other supplier."""
+
+    class FlakyStub(PackStub):
+        """Fails on supplier B's documents, succeeds on the rest."""
+
+        def extract(self, request):
+            if "Guangzhou" in " ".join(request.document_text):
+                raise RateLimited("429 quota exceeded")
+            return super().extract(request)
+
+    def test_a_rate_limited_supplier_does_not_abort_the_run(self) -> None:
+        outcome = compare_pack(PACK, 10_000, provider=self.FlakyStub())
+        assert len(outcome.landed) >= 2
+
+    def test_the_failed_supplier_says_it_was_never_read(self) -> None:
+        """Not 'unit price not stated' — that would be a lie about a document
+        nobody managed to open."""
+        outcome = compare_pack(PACK, 10_000, provider=self.FlakyStub())
+        supplier = find(outcome, "B")
+        assert "could not be read" in supplier.refusal.reason
+        assert "rate limit" in supplier.refusal.reason
+
+    def test_an_unread_supplier_is_not_landed_rather_than_contested(self) -> None:
+        """Contested means two sources disagree. Nothing was read here."""
+        outcome = compare_pack(PACK, 10_000, provider=self.FlakyStub())
+        assert find(outcome, "B").state is QuoteState.NOT_LANDED
+
+    def test_a_failure_is_marked_as_such_not_as_missing_data(self) -> None:
+        outcome = compare_pack(PACK, 10_000, provider=self.FlakyStub())
+        kinds = {c.kind for c in find(outcome, "B").quotation.conflicts}
+        assert ConflictKind.EXTRACTION_FAILED in kinds
+        assert find(outcome, "B").quotation.missing == []
 
 
 class TestRobustness:
