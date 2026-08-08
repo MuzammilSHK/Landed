@@ -1,0 +1,9 @@
+# Normalize line endings so diffs stay clean across machines.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pdf binary
+*.xlsx binary
+*.docx binary
