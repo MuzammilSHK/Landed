@@ -22,6 +22,8 @@ from .extract import extract_profile, extract_quotation
 from .ingest import IngestedDocument, ingest_pack
 from .packs import SupplierDocuments, find_assumptions, group_by_supplier, load_assumptions
 from .providers import Provider, get_provider
+from .resolutions import HumanResolution
+from .resolutions import apply as apply_resolutions
 from .schema import (
     Conflict,
     CostAssumptions,
@@ -94,10 +96,11 @@ def compare_pack(
     quantity: int,
     provider: Provider | None = None,
     assumptions: CostAssumptions | None = None,
+    resolutions: list[HumanResolution] | None = None,
 ) -> ComparisonOutcome:
     """Read a pack directory and compare every supplier in it."""
     documents = ingest_pack(pack_dir)
-    return compare_documents(documents, quantity, provider, assumptions)
+    return compare_documents(documents, quantity, provider, assumptions, resolutions)
 
 
 def compare_documents(
@@ -105,9 +108,11 @@ def compare_documents(
     quantity: int,
     provider: Provider | None = None,
     assumptions: CostAssumptions | None = None,
+    resolutions: list[HumanResolution] | None = None,
 ) -> ComparisonOutcome:
     engine = provider or get_provider()
     resolved = assumptions or _assumptions_from(documents)
+    supplied = resolutions or []
 
     readable = [d for d in documents if d.is_readable]
     unreadable = [f"{d.filename}: {d.error}" for d in documents if not d.is_readable]
@@ -120,7 +125,9 @@ def compare_documents(
 
     quotations = [quotation for quotation, _, _, _ in extracted]
     suppliers = [
-        _cost_supplier(quotation, profile, found, payloads, quotations, quantity, resolved)
+        _cost_supplier(
+            quotation, profile, found, payloads, quotations, quantity, resolved, supplied
+        )
         for quotation, profile, found, payloads in extracted
     ]
 
@@ -161,6 +168,7 @@ def _cost_supplier(
     peers: list[Quotation],
     quantity: int,
     assumptions: CostAssumptions,
+    resolutions: list[HumanResolution],
 ) -> SupplierOutcome:
     annotated = annotate(
         quotation,
@@ -170,6 +178,11 @@ def _cost_supplier(
         peers=[q for q in peers if q.supplier_id != quotation.supplier_id],
         extra=found,
     )
+    # Detection runs first, then human input answers it. Applying resolutions before
+    # annotation would hide the conflict a person had already settled, leaving no
+    # record on screen of what was in dispute.
+    annotated, assumptions = apply_resolutions(annotated, assumptions, resolutions)
+
     result = (
         compute(annotated, quantity, assumptions)
         if annotated.state is QuoteState.LANDED

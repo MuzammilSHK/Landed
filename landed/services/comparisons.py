@@ -23,6 +23,7 @@ from landed.core.pipeline import ComparisonOutcome, compare_documents
 from landed.core.providers import Provider
 from landed.core.schema import CostAssumptions, QuoteState
 from landed.db.models import Comparison, ComparisonResult, Document, User
+from landed.services import resolutions
 from landed.services.projects import get_project
 
 
@@ -51,7 +52,13 @@ def run_and_save(
         # Uploads are stored under a content hash, so restore the name the user knows.
         read.filename = original.filename
 
-    outcome = compare_documents(ingested, quantity, provider, assumptions)
+    outcome = compare_documents(
+        ingested,
+        quantity,
+        provider,
+        assumptions,
+        resolutions=resolutions.active(session, user, project.id),
+    )
     return save(session, project.id, outcome, [d.id for d in documents])
 
 
