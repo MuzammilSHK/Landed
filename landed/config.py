@@ -1,8 +1,9 @@
 """Runtime configuration, read once from the environment.
 
-PostgreSQL is the deployment target; SQLite is kept working so a reviewer can clone
-the repository and run the app without standing up a server first. Every model in
-`landed.db` uses portable column types so the two stay interchangeable.
+PostgreSQL is the only supported database. Supporting a second engine would mean
+testing against something other than what ships, and would rule out the features the
+schema actually depends on — JSONB with GIN indexes for conflict queries, and CITEXT
+so an email is the same address whatever its capitalisation.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ class Settings(BaseSettings):
     )
 
     # --- Persistence ---
-    database_url: str = "sqlite:///./landed.db"
+    database_url: str = "postgresql+psycopg://landed:landed@localhost:5432/landed"
 
     # --- Extraction provider ---
     provider: str = "anthropic"                    # anthropic | gemini | ollama
@@ -40,10 +41,6 @@ class Settings(BaseSettings):
 
     # --- Reproducibility ---
     seed: int = 42
-
-    @property
-    def is_sqlite(self) -> bool:
-        return self.database_url.startswith("sqlite")
 
 
 @lru_cache(maxsize=1)

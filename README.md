@@ -85,16 +85,20 @@ copy .env.example .env         # then add your API key
 
 ### Database
 
-PostgreSQL is the target; SQLite works with no server so the repository can be
-cloned and run immediately.
+PostgreSQL, and only PostgreSQL. Supporting a second engine would mean testing
+against something other than what ships, and would rule out the features the schema
+depends on — JSONB with a GIN index so conflict filters are an indexed lookup rather
+than a scan, and CITEXT so an email is one account whatever its capitalisation.
 
 ```bash
 docker compose up -d
 alembic upgrade head
 ```
 
-To use the zero-setup fallback instead, set `LANDED_DATABASE_URL=sqlite:///./landed.db`
-in `.env` and run the same `alembic upgrade head`.
+Tests run against a real server too, in a `landed_test` database created on first
+run. Each test is wrapped in a transaction that is rolled back afterwards, so the
+schema is built once rather than per test. With no server reachable, the database
+tests skip with an explicit reason and the rest of the suite still runs.
 
 ### Extraction provider
 

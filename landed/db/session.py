@@ -1,19 +1,12 @@
-"""Engine and session management.
-
-The same code path serves PostgreSQL and SQLite. SQLite needs two nudges to behave:
-`check_same_thread=False` because the web server hands connections between threads,
-and `PRAGMA foreign_keys=ON` because SQLite ignores foreign keys unless asked, which
-would silently defeat every `ondelete="CASCADE"` in the models.
-"""
+"""Engine and session management."""
 
 from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from landed.config import settings
 from landed.db.models import Base
@@ -22,31 +15,10 @@ from landed.db.models import Base
 def build_engine(url: str | None = None) -> Engine:
     """Create an engine for `url`, defaulting to the configured database.
 
-    In-memory SQLite additionally needs `StaticPool`: without it every connection
-    gets its own empty database, so a schema created on one is invisible to the next.
+    `pool_pre_ping` costs one round trip per checkout and saves the class of failure
+    where a connection went stale while the app was idle.
     """
-    resolved = url or settings().database_url
-    kwargs: dict = {"pool_pre_ping": True}
-    if resolved.startswith("sqlite"):
-        kwargs["connect_args"] = {"check_same_thread": False}
-        if _is_in_memory(resolved):
-            kwargs["poolclass"] = StaticPool
-    engine = create_engine(resolved, **kwargs)
-    if resolved.startswith("sqlite"):
-        _enforce_sqlite_foreign_keys(engine)
-    return engine
-
-
-def _is_in_memory(url: str) -> bool:
-    return url in {"sqlite://", "sqlite:///:memory:"} or ":memory:" in url
-
-
-def _enforce_sqlite_foreign_keys(engine: Engine) -> None:
-    @event.listens_for(engine, "connect")
-    def _set_pragma(dbapi_connection, _record) -> None:
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+    return create_engine(url or settings().database_url, pool_pre_ping=True)
 
 
 _engine: Engine | None = None
@@ -75,7 +47,7 @@ def get_session() -> Iterator[Session]:
 
 @contextmanager
 def session_scope() -> Iterator[Session]:
-    """Transactional scope for scripts and tests. Commits on success, rolls back on error."""
+    """Transactional scope for scripts. Commits on success, rolls back on error."""
     session = session_factory()()
     try:
         yield session
@@ -88,8 +60,5 @@ def session_scope() -> Iterator[Session]:
 
 
 def create_all(target: Engine | None = None) -> None:
-    """Create the schema directly.
-
-    For tests and first-run convenience. Alembic owns schema changes everywhere else.
-    """
+    """Create the schema directly. Used by tests; Alembic owns it everywhere else."""
     Base.metadata.create_all(target or engine())

@@ -1,12 +1,10 @@
 """Persistence models.
 
-Column types stay portable so the same schema runs on PostgreSQL and SQLite —
-`JSON` rather than `JSONB`, no server-side defaults beyond `now()`.
-
-Domain objects are stored as JSON rather than shredded into columns. A `Quotation`
-carries provenance on every value; flattening it into rows would either lose that or
-require a table per field. The relational structure earns its place where we query —
-ownership, project history, version lineage — and JSON holds the evidence.
+Domain objects are stored as JSONB rather than shredded into columns. A `Quotation`
+carries provenance on every value; flattening it would either lose that or require a
+table per field. The relational structure earns its place where we query — ownership,
+project history, version lineage — and JSONB holds the evidence, indexed where the
+dashboard needs to filter on it.
 """
 
 from __future__ import annotations
@@ -14,7 +12,6 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import (
-    JSON,
     DateTime,
     ForeignKey,
     Index,
@@ -24,6 +21,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import CITEXT, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -39,7 +37,9 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    # CITEXT so Buyer@Example.com and buyer@example.com are one account, enforced by
+    # the database rather than by every call site remembering to normalise.
+    email: Mapped[str] = mapped_column(CITEXT, unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = _created_at()
 
@@ -75,6 +75,7 @@ class Project(Base):
         back_populates="project", cascade="all, delete-orphan"
     )
 
+    # The dashboard's only listing query: this user's projects, most recent first.
     __table_args__ = (Index("ix_projects_user_updated", "user_id", "updated_at"),)
 
 
@@ -108,15 +109,14 @@ class Extraction(Base):
     """One model's reading of one document.
 
     Kept separate from `Document` so a re-extraction with a different model is a new
-    row rather than an overwrite — the provenance of a number includes which model
-    read it.
+    row rather than an overwrite — which model read a value is part of its provenance.
     """
 
     __tablename__ = "extractions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     document_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"))
-    payload: Mapped[dict] = mapped_column(JSON)
+    payload: Mapped[dict] = mapped_column(JSONB)
     provider: Mapped[str] = mapped_column(String(40))
     model_version: Mapped[str] = mapped_column(String(120))
     created_at: Mapped[datetime] = _created_at()
@@ -128,8 +128,8 @@ class Comparison(Base):
     """One costed run of a project, versioned.
 
     Versions are never overwritten: a report sent last week must still say what it
-    said, and the diff between two versions is the product's answer to "did the
-    decision move?".
+    said, and the diff between two versions is the product's answer to whether the
+    decision moved.
     """
 
     __tablename__ = "comparisons"
@@ -139,8 +139,8 @@ class Comparison(Base):
     version: Mapped[int] = mapped_column(Integer)
     quantity: Mapped[int] = mapped_column(Integer)
     currency: Mapped[str] = mapped_column(String(3))
-    assumptions: Mapped[dict] = mapped_column(JSON)
-    document_ids: Mapped[list] = mapped_column(JSON, default=list)
+    assumptions: Mapped[dict] = mapped_column(JSONB)
+    document_ids: Mapped[list] = mapped_column(JSONB, default=list)
     created_at: Mapped[datetime] = _created_at()
 
     project: Mapped[Project] = relationship(back_populates="comparisons")
@@ -169,11 +169,17 @@ class ComparisonResult(Base):
     supplier_id: Mapped[str] = mapped_column(String(80))
     supplier_name: Mapped[str | None] = mapped_column(String(200))
     state: Mapped[str] = mapped_column(String(20), index=True)
-    breakdown: Mapped[dict | None] = mapped_column(JSON)
-    refusal: Mapped[dict | None] = mapped_column(JSON)
-    conflicts: Mapped[list] = mapped_column(JSON, default=list)
+    breakdown: Mapped[dict | None] = mapped_column(JSONB)
+    refusal: Mapped[dict | None] = mapped_column(JSONB)
+    conflicts: Mapped[list] = mapped_column(JSONB, default=list)
 
     comparison: Mapped[Comparison] = relationship(back_populates="results")
+
+    # GIN over the conflict payload turns "every project still blocked on an MOQ
+    # disagreement" into an indexed lookup instead of a scan over every result.
+    __table_args__ = (
+        Index("ix_results_conflicts_gin", "conflicts", postgresql_using="gin"),
+    )
 
 
 class Resolution(Base):
@@ -191,8 +197,8 @@ class Resolution(Base):
     supplier_id: Mapped[str] = mapped_column(String(80))
     field_path: Mapped[str] = mapped_column(String(200))
     kind: Mapped[str] = mapped_column(String(30))          # assumption | source_choice
-    payload: Mapped[dict] = mapped_column(JSON)
-    actor_email: Mapped[str] = mapped_column(String(320))
+    payload: Mapped[dict] = mapped_column(JSONB)
+    actor_email: Mapped[str] = mapped_column(CITEXT)
     rationale: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = _created_at()
     reverted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

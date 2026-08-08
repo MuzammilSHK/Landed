@@ -53,6 +53,17 @@ class TestAccounts:
         with pytest.raises(IntegrityError):
             db.commit()
 
+    def test_email_is_case_insensitive(self, db: Session, user: User) -> None:
+        """CITEXT: one address, however it was typed. Enforced by the database, not
+        by every call site remembering to lowercase."""
+        db.add(User(email="BUYER@Example.COM", password_hash="other"))
+        with pytest.raises(IntegrityError):
+            db.commit()
+
+    def test_lookup_ignores_capitalisation(self, db: Session, user: User) -> None:
+        found = db.scalars(select(User).where(User.email == "Buyer@Example.com")).one()
+        assert found.id == user.id
+
     def test_projects_belong_to_their_owner(self, db: Session, project: Project) -> None:
         loaded = db.get(Project, project.id)
         assert loaded is not None
@@ -81,7 +92,6 @@ class TestOwnershipIsolation:
 
 class TestForeignKeys:
     def test_orphan_document_is_rejected(self, db: Session) -> None:
-        """SQLite ignores foreign keys unless the PRAGMA is set — this proves it is."""
         db.add(document(project_id=9999))
         with pytest.raises(IntegrityError):
             db.commit()
