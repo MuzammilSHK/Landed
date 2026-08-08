@@ -26,10 +26,16 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://landed:landed@localhost:5432/landed"
 
     # --- Extraction provider ---
-    provider: str = "anthropic"                    # anthropic | gemini | ollama
+    # anthropic | gemini | groq | openai | ollama
+    provider: str = "anthropic"
     extraction_model: str = "claude-sonnet-5"
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
     gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
+    groq_api_key: str | None = Field(default=None, alias="GROQ_API_KEY")
+    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    # Any OpenAI-compatible endpoint: OpenRouter, Together, DeepSeek, a local vLLM.
+    # Left blank, each provider uses its own default.
+    openai_base_url: str | None = Field(default=None, alias="OPENAI_BASE_URL")
     ollama_host: str = "http://localhost:11434"
 
     # --- Web ---

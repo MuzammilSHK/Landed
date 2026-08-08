@@ -268,6 +268,80 @@ class GeminiProvider:
         )
 
 
+class OpenAICompatibleProvider:
+    """Any server speaking the OpenAI chat-completions API.
+
+    One class rather than one per vendor: Groq, OpenRouter, Together, DeepSeek and a
+    local vLLM all expose the same endpoint, so they differ only by base URL. Adding
+    another is a registry entry, not a new implementation.
+    """
+
+    name = "openai"
+    default_base_url = "https://api.openai.com/v1"
+    key_setting = "openai_api_key"
+
+    def __init__(
+        self,
+        model: str | None = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
+    ) -> None:
+        self.model = model or settings().extraction_model
+        self._api_key = api_key or getattr(settings(), self.key_setting, None)
+        self._base_url = (base_url or settings().openai_base_url or
+                          self.default_base_url).rstrip("/")
+
+    def extract(self, request: ExtractionRequest) -> ExtractionResponse:
+        if not self._api_key:
+            raise ProviderError(f"{self.key_setting.upper()} is not set")
+
+        content: list[dict] = [
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{image.media_type};base64,{image.b64()}"},
+            }
+            for image in request.images
+        ]
+        content.append({"type": "text", "text": build_prompt(request)})
+
+        def send() -> httpx.Response:
+            reply = httpx.post(
+                f"{self._base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                json={
+                    "model": self.model,
+                    "max_tokens": request.max_tokens,
+                    "response_format": {"type": "json_object"},
+                    "messages": [
+                        {"role": "system", "content": request.system},
+                        {"role": "user", "content": content},
+                    ],
+                },
+                timeout=180,
+            )
+            _raise_for_status(reply)
+            return reply
+
+        body = with_retries(send).json()
+        return ExtractionResponse(
+            payload=parse_payload(body["choices"][0]["message"]["content"]),
+            provider=self.name,
+            model_version=body.get("model", self.model),
+        )
+
+
+class GroqProvider(OpenAICompatibleProvider):
+    """Groq's hosted open models. Fast, and a far more generous free tier than most.
+
+    Worth knowing before relying on it: Groq caps tokens per minute as well as
+    requests, and whole documents are not small. Fewer refusals, not none.
+    """
+
+    name = "groq"
+    default_base_url = "https://api.groq.com/openai/v1"
+    key_setting = "groq_api_key"
+
+
 class OllamaProvider:
     """A local model. Slower and less accurate, but no case material leaves the machine.
 
@@ -311,6 +385,8 @@ class OllamaProvider:
 _PROVIDERS = {
     AnthropicProvider.name: AnthropicProvider,
     GeminiProvider.name: GeminiProvider,
+    GroqProvider.name: GroqProvider,
+    OpenAICompatibleProvider.name: OpenAICompatibleProvider,
     OllamaProvider.name: OllamaProvider,
 }
 

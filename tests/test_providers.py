@@ -17,8 +17,11 @@ from landed.core.providers import (
     AnthropicProvider,
     ExtractionRequest,
     GeminiProvider,
+    GroqProvider,
     ImagePart,
     OllamaProvider,
+    OpenAICompatibleProvider,
+    ProviderError,
     build_prompt,
     get_provider,
     parse_payload,
@@ -120,12 +123,36 @@ class TestProviderResolution:
         [
             ("anthropic", AnthropicProvider),
             ("gemini", GeminiProvider),
+            ("groq", GroqProvider),
+            ("openai", OpenAICompatibleProvider),
             ("ollama", OllamaProvider),
             ("ANTHROPIC", AnthropicProvider),
         ],
     )
     def test_known_providers_resolve(self, name: str, expected: type) -> None:
         assert isinstance(get_provider(name), expected)
+
+
+class TestOpenAICompatible:
+    """Groq, OpenRouter, Together and a local vLLM differ only by base URL."""
+
+    def test_groq_points_at_its_own_endpoint(self) -> None:
+        assert GroqProvider(api_key="x")._base_url.startswith("https://api.groq.com")
+
+    def test_groq_reads_its_own_key_setting(self) -> None:
+        assert GroqProvider.key_setting == "groq_api_key"
+
+    def test_a_base_url_override_redirects_it(self) -> None:
+        """One class covers every compatible vendor; only the URL changes."""
+        provider = OpenAICompatibleProvider(
+            api_key="x", base_url="https://openrouter.ai/api/v1/"
+        )
+        assert provider._base_url == "https://openrouter.ai/api/v1"
+
+    @pytest.mark.usefixtures("no_credentials")
+    def test_a_missing_key_names_the_variable_to_set(self) -> None:
+        with pytest.raises(ProviderError, match="GROQ_API_KEY"):
+            GroqProvider().extract(request())
 
     def test_unknown_provider_names_the_valid_options(self) -> None:
         with pytest.raises(ValueError, match="anthropic"):
