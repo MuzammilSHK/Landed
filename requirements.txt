@@ -24,6 +24,8 @@ itsdangerous==2.2.0         # signed session cookies
 
 # --- Persistence ---
 SQLAlchemy==2.0.36
+psycopg[binary]==3.2.3      # PostgreSQL driver (psycopg 3)
+alembic==1.14.0             # schema migrations
 
 # --- Auth ---
 argon2-cffi==23.1.0
@@ -33,6 +35,7 @@ reportlab==4.2.5            # PDF export (pure Python, no system deps)
 
 # --- Config ---
 python-dotenv==1.0.1
+pydantic-settings==2.6.1
 
 # --- Dev ---
 pytest==8.3.3

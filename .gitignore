@@ -17,6 +17,12 @@ packs/official/*
 *.key
 credentials.json
 
+# Local database and uploaded documents.
+# Uploads are user case material and never belong in version control.
+*.db
+*.db-journal
+uploads/
+
 # Python
 __pycache__/
 *.py[cod]

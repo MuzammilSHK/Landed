@@ -1,0 +1,29 @@
+# PostgreSQL for local development and demo.
+#
+#   docker compose up -d
+#   set LANDED_DATABASE_URL=postgresql+psycopg://landed:landed@localhost:5432/landed
+#   alembic upgrade head
+#
+# Not required to run the app: with no DATABASE_URL configured, Landed falls back to
+# SQLite so the repository can be cloned and started without a server.
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: landed-db
+    environment:
+      POSTGRES_USER: landed
+      POSTGRES_PASSWORD: landed
+      POSTGRES_DB: landed
+    ports:
+      - "5432:5432"
+    volumes:
+      - landed-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U landed -d landed"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  landed-pgdata:

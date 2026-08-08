@@ -83,6 +83,25 @@ pip install -r requirements.txt
 copy .env.example .env         # then add your API key
 ```
 
+### Database
+
+PostgreSQL is the target; SQLite works with no server so the repository can be
+cloned and run immediately.
+
+```bash
+docker compose up -d
+alembic upgrade head
+```
+
+To use the zero-setup fallback instead, set `LANDED_DATABASE_URL=sqlite:///./landed.db`
+in `.env` and run the same `alembic upgrade head`.
+
+### Extraction provider
+
+Extraction is the only stage that calls a model. Set `LANDED_PROVIDER` to
+`anthropic`, `gemini`, or `ollama`. Note that the Anthropic API is billed separately
+from a Claude Pro subscription; Gemini has a free tier and Ollama runs locally.
+
 ## Run
 
 ```bash
