@@ -220,6 +220,22 @@ class Quotation(BaseModel):
         return [c for c in self.conflicts if c.is_open]
 
 
+class SupplierProfile(BaseModel):
+    """A supplier's own capability document.
+
+    Exists to be disagreed with. Profiles routinely restate terms the quotation also
+    states, and when the two differ the honest answer is to show both rather than to
+    prefer whichever was parsed second.
+    """
+
+    supplier_id: str
+    supplier_name: str | None = None
+    moq: Count | None = None
+    lead_time_days: Count | None = None
+    capacity_units_per_month: Count | None = None
+    certifications: list[Text] = Field(default_factory=list)
+
+
 class CostAssumptions(BaseModel):
     """Inputs the cost engine needs that the quotation itself does not state.
 

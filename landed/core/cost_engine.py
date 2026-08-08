@@ -126,7 +126,7 @@ def missing_inputs(
             missing.append("unit_weight_kg")
     if incoterm.buyer_bears_duty and assumptions.duty_rate is None:
         missing.append("duty_rate")
-    if _goods_per_unit(quote, quantity, assumptions) is None:
+    if normalized_unit_price(quote, quantity, assumptions) is None:
         missing.append("unit_price_basis_conversion")
     return missing
 
@@ -136,7 +136,7 @@ def missing_inputs(
 # --------------------------------------------------------------------------- #
 
 def _goods(quote: Quotation, quantity: int, assumptions: CostAssumptions) -> Money:
-    per_unit = _goods_per_unit(quote, quantity, assumptions)
+    per_unit = normalized_unit_price(quote, quantity, assumptions)
     assert per_unit is not None, "guarded by missing_inputs"
     return _derived(
         per_unit * quantity,
@@ -145,13 +145,14 @@ def _goods(quote: Quotation, quantity: int, assumptions: CostAssumptions) -> Mon
     )
 
 
-def _goods_per_unit(
+def normalized_unit_price(
     quote: Quotation, quantity: int, assumptions: CostAssumptions
 ) -> Decimal | None:
     """Sum of component prices for one finished unit, in base currency.
 
     None when any line item cannot be normalized — a per-kg price with no unit
-    weight, or a currency with no dated rate.
+    weight, or a currency with no dated rate. Public because `conflicts` compares
+    it across suppliers to catch a pricing-basis misread.
     """
     total = ZERO
     for item in quote.line_items:
