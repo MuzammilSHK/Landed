@@ -11,7 +11,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -41,12 +41,33 @@ class Settings(BaseSettings):
     # --- Web ---
     secret_key: str = "dev-only-change-me"
     session_max_age_seconds: int = 60 * 60 * 12
+    # Set true wherever the app is served over TLS, which marks the session cookie
+    # Secure. Off by default because the local demo runs over plain http, and a
+    # Secure cookie there is silently never sent — an unexplained logged-out app.
+    secure_cookies: bool = False
 
     # --- Storage ---
     upload_dir: Path = REPO_ROOT / "uploads"
 
     # --- Reproducibility ---
     seed: int = 42
+
+
+    @field_validator("database_url")
+    @classmethod
+    def _use_psycopg3(cls, url: str) -> str:
+        """Normalise the scheme a managed host hands out.
+
+        Render, Heroku and most others publish `postgres://` or `postgresql://`.
+        SQLAlchemy resolves both to psycopg2, which is not what this project installs
+        — the result is `ModuleNotFoundError: psycopg2` at first connection, on the
+        deployed box only. Rewriting the scheme here means the platform's own
+        connection string can be pasted in unedited.
+        """
+        for prefix in ("postgres://", "postgresql://"):
+            if url.startswith(prefix):
+                return "postgresql+psycopg://" + url[len(prefix):]
+        return url
 
 
 @lru_cache(maxsize=1)

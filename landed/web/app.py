@@ -38,7 +38,7 @@ def create_app() -> FastAPI:
         secret_key=settings().secret_key,
         max_age=settings().session_max_age_seconds,
         same_site="lax",
-        https_only=False,  # the demo runs over http; set true behind TLS
+        https_only=settings().secure_cookies,
     )
     app.mount(
         "/static", StaticFiles(directory=WEB_ROOT / "static"), name="static"

@@ -15,6 +15,11 @@ dependencies = { file = ["requirements.txt"] }
 [tool.setuptools.packages.find]
 include = ["landed*"]
 
+# The ASGI app does not sit in a location Vercel probes by default, because the web
+# layer is one adapter over `landed.core` rather than the root of the project.
+[tool.vercel]
+entrypoint = "landed.web.app:app"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --strict-markers"

@@ -1,0 +1,58 @@
+# Render blueprint. Create the services from this file rather than by hand, so the
+# deployed configuration is reviewable in the repository instead of living only in a
+# dashboard.
+#
+#   Render dashboard -> New -> Blueprint -> point at this repo.
+#
+# Afterwards, set the extraction provider's API key in the dashboard. It is the one
+# value deliberately not declared here: `sync: false` means Render prompts for it and
+# stores it as a secret, so a key never reaches the repository.
+
+databases:
+  - name: landed-db
+    databaseName: landed
+    user: landed
+    plan: free
+
+services:
+  - type: web
+    name: landed
+    runtime: python
+    plan: free
+    # `alembic upgrade head` runs at build, not at start. On start it would run once
+    # per instance and race itself the moment there is more than one.
+    buildCommand: pip install -r requirements.txt && alembic upgrade head
+    startCommand: uvicorn landed.web.app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+
+    # Uploaded quotations are written to disk and cited by every stored comparison
+    # version. Without a persistent disk Render's filesystem resets on each deploy and
+    # every citation in the audit trail stops resolving.
+    disk:
+      name: landed-uploads
+      mountPath: /var/data/uploads
+      sizeGB: 1
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: LANDED_DATABASE_URL
+        fromDatabase:
+          name: landed-db
+          property: connectionString
+      - key: LANDED_UPLOAD_DIR
+        value: /var/data/uploads
+      # Signs the session cookie. Generated once by Render and never seen by us;
+      # changing it invalidates every existing session, which is the correct
+      # behaviour for a leaked key.
+      - key: LANDED_SECRET_KEY
+        generateValue: true
+      # Render terminates TLS, so the session cookie can be marked Secure.
+      - key: LANDED_SECURE_COOKIES
+        value: "true"
+      - key: LANDED_PROVIDER
+        value: groq
+      - key: LANDED_EXTRACTION_MODEL
+        value: llama-3.3-70b-versatile
+      - key: GROQ_API_KEY
+        sync: false
