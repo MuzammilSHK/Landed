@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from landed.core.ingest import ingest_pack
 from landed.core.packs import group_by_supplier, load_assumptions, supplier_id_from_filename
 from landed.core.pipeline import compare_pack
 from landed.core.providers import ExtractionRequest, ExtractionResponse, RateLimited
@@ -287,7 +288,33 @@ class TestRobustness:
         result = compare_documents(documents, 10_000, PackStub())
         assert any("quote_z.pdf" in entry for entry in result.unreadable)
 
-    def test_missing_assumptions_fails_loudly(self, tmp_path: Path) -> None:
+    def test_missing_assumptions_refuses_rather_than_raising(self, tmp_path: Path) -> None:
+        """No assumptions at all is a refusal that names them, not an exception.
+
+        Raising took down the whole comparison and told the user nothing, which is the
+        opposite of what this product exists to do. The engine's own guard already
+        knows freight and duty are absent, so the answer is a NOT LANDED naming them.
+        """
         (tmp_path / "quote_a.pdf").write_bytes((PACK / "quote_a.pdf").read_bytes())
-        with pytest.raises(ValueError, match="no assumptions document"):
-            compare_pack(tmp_path, 10_000, PackStub())
+        outcome = compare_pack(tmp_path, 10_000, PackStub())
+
+        assert outcome.landed == []
+        supplier = outcome.suppliers[0]
+        assert supplier.state is QuoteState.NOT_LANDED
+        assert supplier.breakdown is None
+        assert {"freight", "duty_rate"} <= set(supplier.refusal.missing_fields)
+
+    def test_a_supplier_with_no_quotation_is_reported_not_dropped(self) -> None:
+        """A declared supplier with nothing uploaded is a visible gap.
+
+        Silently omitting it is how a supplier used to vanish from a comparison
+        because their file was not named `quote_x.pdf`.
+        """
+        from landed.core.pipeline import compare_documents
+
+        outcome = compare_documents(
+            ingest_pack(PACK), 10_000, PackStub(), declared=["NEWCO"]
+        )
+        awaiting = next(s for s in outcome.suppliers if s.supplier_id == "NEWCO")
+        assert awaiting.state is QuoteState.NOT_LANDED
+        assert "no quotation" in awaiting.refusal.reason

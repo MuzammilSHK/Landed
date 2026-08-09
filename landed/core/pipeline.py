@@ -110,7 +110,17 @@ def compare_documents(
     provider: Provider | None = None,
     assumptions: CostAssumptions | None = None,
     resolutions: list[HumanResolution] | None = None,
+    supplier_map: dict[str, str] | None = None,
+    document_kinds: dict[str, str] | None = None,
+    declared: list[str] | None = None,
+    names: dict[str, str] | None = None,
 ) -> ComparisonOutcome:
+    """Compare every supplier across the supplied documents.
+
+    `supplier_map`, `document_kinds`, and `declared` come from the web app, where the
+    user has already said which supplier each file belongs to. Headless callers pass
+    none of them and fall back to the pack filename convention.
+    """
     engine = provider or get_provider()
     resolved = assumptions or _assumptions_from(documents)
     supplied = resolutions or []
@@ -118,9 +128,15 @@ def compare_documents(
     readable = [d for d in documents if d.is_readable]
     unreadable = [f"{d.filename}: {d.error}" for d in documents if not d.is_readable]
 
+    bundles = group_by_supplier(readable, supplier_map, document_kinds, declared)
+
+    # A supplier with no readable quotation is still part of the comparison. Dropping
+    # it here is what previously made an unnamed file look like a supplier that never
+    # existed; reporting it as NOT LANDED says the true thing instead — we know who
+    # they are, and we have nothing to cost.
     extracted = [
         _extract_supplier(bundle, engine)
-        for bundle in group_by_supplier(readable).values()
+        for bundle in bundles.values()
         if bundle.is_costable
     ]
 
@@ -131,6 +147,16 @@ def compare_documents(
         )
         for quotation, profile, found, payloads in extracted
     ]
+    suppliers.extend(
+        _awaiting_quotation(bundle)
+        for bundle in bundles.values()
+        if not bundle.is_costable
+    )
+
+    for supplier in suppliers:
+        supplier.supplier_name = (
+            supplier.supplier_name or (names or {}).get(supplier.supplier_id)
+        )
 
     return ComparisonOutcome(
         quantity=quantity,
@@ -138,6 +164,39 @@ def compare_documents(
         assumptions=resolved,
         suppliers=suppliers,
         unreadable=unreadable,
+    )
+
+
+def _awaiting_quotation(bundle: SupplierDocuments) -> SupplierOutcome:
+    """A supplier on the list with nothing priced yet."""
+    detail = (
+        "a supplier profile was uploaded, but no quotation"
+        if bundle.profiles
+        else "no quotation has been uploaded"
+    )
+    quotation = Quotation(
+        supplier_id=bundle.supplier_id,
+        conflicts=[
+            Conflict(
+                kind=ConflictKind.MISSING_REQUIRED,
+                field_path="document",
+                message=f"Nothing to compare — {detail}.",
+            )
+        ],
+        # NOT LANDED, not CONTESTED — nothing is in dispute, there is simply nothing
+        # to read. `missing_fields` on the refusal stays empty so the UI does not
+        # offer to have someone hand-type a quotation that should be uploaded.
+        missing=["quotation"],
+    )
+    return SupplierOutcome(
+        supplier_id=bundle.supplier_id,
+        quotation=quotation,
+        result=Refusal(
+            supplier_id=bundle.supplier_id,
+            reason=f"Nothing to compare — {detail}.",
+            missing_fields=[],
+            conflicts=quotation.conflicts,
+        ),
     )
 
 
@@ -263,10 +322,18 @@ def _refuse(quotation: Quotation) -> Refusal:
     )
 
 
-def _assumptions_from(documents: list[IngestedDocument]) -> CostAssumptions:
+def _assumptions_from(
+    documents: list[IngestedDocument], base_currency: str = "USD"
+) -> CostAssumptions:
+    """Read stated assumptions from the pack, or start from none.
+
+    An absent assumptions sheet is not an error. Every field stays None, and the cost
+    engine's own guard then reports freight and duty as missing inputs — a NOT LANDED
+    naming exactly what is needed. Raising here instead threw away that answer and
+    took the whole comparison down with it, which is the opposite of the behaviour
+    this product is built to demonstrate.
+    """
     document = find_assumptions(documents)
     if document is None:
-        raise ValueError(
-            "no assumptions document found in the pack; supply one explicitly"
-        )
-    return load_assumptions(document)
+        return CostAssumptions(base_currency=base_currency)
+    return load_assumptions(document, base_currency)

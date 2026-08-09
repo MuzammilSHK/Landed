@@ -59,12 +59,23 @@ class Project(Base):
     product_name: Mapped[str | None] = mapped_column(String(200))
     base_currency: Mapped[str] = mapped_column(String(3), default="USD")
     destination_country: Mapped[str | None] = mapped_column(String(80))
+    # The quantity the team is actually sourcing. It belongs to the decision, not to
+    # a run: tooling amortization makes every figure on the page a function of it, so
+    # it is stated once on the project and each run inherits it.
+    target_quantity: Mapped[int] = mapped_column(Integer, default=10000)
+    # Freight, duty, insurance, FX — the costs no supplier quote states. Held as the
+    # team's own input rather than parsed out of a spreadsheet, so they can be entered,
+    # seen, and edited. Attribution is added when they are turned into `CostAssumptions`.
+    assumptions: Mapped[dict] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
     owner: Mapped[User] = relationship(back_populates="projects")
+    suppliers: Mapped[list[Supplier]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
     documents: Mapped[list[Document]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
@@ -82,6 +93,35 @@ class Project(Base):
     __table_args__ = (Index("ix_projects_user_updated", "user_id", "updated_at"),)
 
 
+class Supplier(Base):
+    """A supplier the team is actually considering.
+
+    Previously a supplier existed only as a string inferred from a filename, which
+    meant a quote had to be named `quote_a.pdf` to be seen at all. Naming the supplier
+    first and hanging documents off it inverts that: the column exists because someone
+    said this supplier is in the running, and an unreadable or missing quote becomes a
+    visible gap in that column rather than a supplier that silently never appeared.
+    """
+
+    __tablename__ = "suppliers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    # The short code carried through the engine, conflicts, and every stored result.
+    code: Mapped[str] = mapped_column(String(80))
+    name: Mapped[str] = mapped_column(String(200))
+    country: Mapped[str | None] = mapped_column(String(80))
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _created_at()
+
+    project: Mapped[Project] = relationship(back_populates="suppliers")
+    documents: Mapped[list[Document]] = relationship(back_populates="supplier")
+
+    __table_args__ = (
+        UniqueConstraint("project_id", "code", name="uq_supplier_project_code"),
+    )
+
+
 class Document(Base):
     """An uploaded source file.
 
@@ -97,12 +137,18 @@ class Document(Base):
     content_type: Mapped[str | None] = mapped_column(String(120))
     kind: Mapped[str] = mapped_column(String(30), default="quotation")
     supplier_id: Mapped[str | None] = mapped_column(String(80), index=True)
+    # Set when the file was uploaded into a named supplier's column. Null means shared
+    # project material — a brief, a BOM — that belongs to no one supplier.
+    supplier_ref_id: Mapped[int | None] = mapped_column(
+        ForeignKey("suppliers.id", ondelete="SET NULL"), index=True
+    )
     sha256: Mapped[str] = mapped_column(String(64), index=True)
     byte_size: Mapped[int] = mapped_column(Integer)
     stored_path: Mapped[str] = mapped_column(String(600))
     uploaded_at: Mapped[datetime] = _created_at()
 
     project: Mapped[Project] = relationship(back_populates="documents")
+    supplier: Mapped[Supplier | None] = relationship(back_populates="documents")
     extractions: Mapped[list[Extraction]] = relationship(
         back_populates="document", cascade="all, delete-orphan"
     )

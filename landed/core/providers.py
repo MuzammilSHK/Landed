@@ -196,7 +196,11 @@ class AnthropicProvider:
         from anthropic import Anthropic
 
         if not self._api_key:
-            raise RuntimeError("ANTHROPIC_API_KEY is not set")
+            # ProviderError, not RuntimeError: a missing key is a configuration state
+            # the app already knows how to report. Raising something the pipeline does
+            # not catch turned it into a 500 with a stack trace instead of the notice
+            # telling the user which setting is absent.
+            raise ProviderError("ANTHROPIC_API_KEY is not set")
         content: list[dict] = [
             {
                 "type": "image",
@@ -235,7 +239,7 @@ class GeminiProvider:
 
     def extract(self, request: ExtractionRequest) -> ExtractionResponse:
         if not self._api_key:
-            raise RuntimeError("GEMINI_API_KEY is not set")
+            raise ProviderError("GEMINI_API_KEY is not set")
         parts: list[dict] = [
             {"inline_data": {"mime_type": image.media_type, "data": image.b64()}}
             for image in request.images

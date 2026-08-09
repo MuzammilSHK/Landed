@@ -26,7 +26,13 @@ from typing import Any
 from . import labelled
 from .ingest import IngestedDocument
 from .normalize import first_number, parse_incoterm, parse_price_basis
-from .providers import ExtractionRequest, ImagePart, Provider, get_provider
+from .providers import (
+    ExtractionRequest,
+    ImagePart,
+    Provider,
+    get_provider,
+    with_retries,
+)
 from .schema import (
     Conflict,
     ConflictKind,
@@ -230,8 +236,13 @@ def extract_quotation(
     payload = labelled.read_quotation(document)
     if labelled.missing_from(payload, REQUIRED_FIELDS) or document.needs_vision:
         engine = provider or get_provider()
-        response = engine.extract(
-            build_request(document, QUOTATION_INSTRUCTION, QUOTATION_SCHEMA)
+        # Retried on 429 only. A free-tier quota is reached routinely partway through
+        # a pack, and losing a supplier to a rate limit reports "could not be read"
+        # for a document whose real problem is something else entirely.
+        response = with_retries(
+            lambda: engine.extract(
+                build_request(document, QUOTATION_INSTRUCTION, QUOTATION_SCHEMA)
+            )
         )
         payload = labelled.merge(payload, response.payload)
 
@@ -279,8 +290,10 @@ def extract_profile(
     payload = labelled.read_profile(document)
     if labelled.missing_from(payload, ("moq", "lead_time_days")) or document.needs_vision:
         engine = provider or get_provider()
-        response = engine.extract(
-            build_request(document, PROFILE_INSTRUCTION, PROFILE_SCHEMA)
+        response = with_retries(
+            lambda: engine.extract(
+                build_request(document, PROFILE_INSTRUCTION, PROFILE_SCHEMA)
+            )
         )
         payload = labelled.merge(payload, response.payload)
 

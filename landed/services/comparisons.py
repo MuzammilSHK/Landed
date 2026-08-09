@@ -11,6 +11,7 @@ information the next version has to be able to compare against.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -21,9 +22,10 @@ from sqlalchemy.orm import Session
 from landed.core.ingest import ingest_file
 from landed.core.pipeline import ComparisonOutcome, compare_documents
 from landed.core.providers import Provider
-from landed.core.schema import CostAssumptions, QuoteState
-from landed.db.models import Comparison, ComparisonResult, Document, User
-from landed.services import resolutions
+from landed.core.resolutions import assumptions_from_inputs
+from landed.core.schema import Attribution, CostAssumptions, QuoteState
+from landed.db.models import Comparison, ComparisonResult, Document, Project, User
+from landed.services import projects, resolutions, suppliers
 from landed.services.projects import get_project
 
 
@@ -35,16 +37,23 @@ def run_and_save(
     session: Session,
     user: User,
     project_id: int,
-    quantity: int,
+    quantity: int | None = None,
     provider: Provider | None = None,
     assumptions: CostAssumptions | None = None,
 ) -> Comparison:
-    """Compare every document in the project and store the result as a new version."""
+    """Compare every document in the project and store the result as a new version.
+
+    Which supplier each file belongs to is read from the upload, not guessed from its
+    name, and every supplier on the project's list is compared whether or not a
+    quotation has arrived for it yet.
+    """
     project = get_project(session, user, project_id)
+    quantity = quantity or project.target_quantity
+    declared = suppliers.list_suppliers(session, user, project.id)
     documents = list(
         session.scalars(select(Document).where(Document.project_id == project.id))
     )
-    if not documents:
+    if not documents and not declared:
         raise NoDocuments(project_id)
 
     ingested = [ingest_file(Path(d.stored_path)) for d in documents]
@@ -52,14 +61,55 @@ def run_and_save(
         # Uploads are stored under a content hash, so restore the name the user knows.
         read.filename = original.filename
 
+    by_ref = {s.id: s for s in declared}
+    supplier_map = {
+        d.filename: by_ref[d.supplier_ref_id].code
+        for d in documents
+        if d.supplier_ref_id in by_ref
+    }
+    document_kinds = {
+        d.filename: d.kind for d in documents if d.supplier_ref_id in by_ref
+    }
+
     outcome = compare_documents(
         ingested,
         quantity,
         provider,
-        assumptions,
+        assumptions or _assumptions_for(project, user),
         resolutions=resolutions.active(session, user, project.id),
+        supplier_map=supplier_map,
+        document_kinds=document_kinds,
+        declared=[s.code for s in declared],
+        names={s.code: s.name for s in declared},
     )
     return save(session, project.id, outcome, [d.id for d in documents])
+
+
+def _assumptions_for(project: Project, user: User) -> CostAssumptions | None:
+    """The project's stated assumptions, attributed to whoever is running this.
+
+    None when nothing has been entered, which lets the pipeline fall back to an
+    uploaded assumptions sheet if the pack happens to include one. Either way, an
+    assumption arrives carrying who supplied it, so it can never be displayed as
+    though a supplier's document had stated it.
+    """
+    values = projects.effective_assumptions(project)
+    if not values:
+        return None
+    stated = bool(project.assumptions)
+    return assumptions_from_inputs(
+        values,
+        project.base_currency,
+        Attribution(
+            actor=user.email if stated else "Landed standing default",
+            at=datetime.now(UTC),
+            rationale=(
+                "entered on the project's assumptions form"
+                if stated
+                else "standing default, shown on the assumptions form and overridable"
+            ),
+        ),
+    )
 
 
 def save(

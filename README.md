@@ -66,7 +66,7 @@ These are non-negotiable and every module obeys them.
                                                               ▼
                                                     LANDED / CONTESTED / NOT LANDED
                                                               │
-                                                     app/app.py (Streamlit)
+                                                  landed/web (FastAPI + Jinja)
 ```
 
 Full detail: [`docs/architecture.md`](docs/architecture.md)
@@ -111,6 +111,24 @@ from a Claude Pro subscription; Gemini has a free tier and Ollama runs locally.
 ```bash
 uvicorn landed.web.app:app --reload
 ```
+
+### The flow
+
+1. **Create a project** and state the order quantity. Everything downstream is a
+   function of it — tooling is amortized across the order, so the cheapest supplier
+   at 5,000 is routinely not the cheapest at 50,000.
+2. **Add a supplier** for each one you are considering. The supplier list is what the
+   comparison is built from; a supplier with no quotation yet shows as an empty column
+   rather than silently not appearing.
+3. **Upload each supplier's quotation** into that supplier's column, and their profile
+   if you have one. Filenames are not interpreted — you say which supplier a file
+   belongs to.
+4. **State the cost assumptions**: freight, duty, insurance, cost of capital, FX rate
+   and its date. No quotation contains these — a supplier prices goods, not your
+   logistics — so they come from you, carry your name, and are shown as assumptions
+   everywhere they appear. Leave one blank and the comparison refuses to total rather
+   than guessing it.
+5. **Compare.** Each run is a new version; earlier ones are never rewritten.
 
 Compare a pack headlessly, without the web layer:
 

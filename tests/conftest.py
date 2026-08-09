@@ -62,8 +62,16 @@ def no_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     -settings treats a None passed to the initialiser as "not provided" and falls
     straight back to the environment.
     """
+    # Every key, not just the two that happened to be configured when this was
+    # written. A key added to .env later would otherwise leak into these tests and
+    # let a "missing credentials" case reach the network instead of failing.
     blank = settings().model_copy(
-        update={"anthropic_api_key": None, "gemini_api_key": None}
+        update={
+            "anthropic_api_key": None,
+            "gemini_api_key": None,
+            "groq_api_key": None,
+            "openai_api_key": None,
+        }
     )
     monkeypatch.setattr(providers, "settings", lambda: blank)
 

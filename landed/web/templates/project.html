@@ -4,145 +4,395 @@
 {% block content %}
 <h1>{{ project.name }}</h1>
 <p class="sub">
-  {{ project.product_name or "No product named" }} · comparing in {{ project.base_currency }}
-  {% if comparison %}
-    · version {{ comparison.version }} at {{ "{:,}".format(comparison.quantity) }} units
-  {% endif %}
+  {{ project.product_name or "No product named" }}
+  · <strong>{{ "{:,}".format(project.target_quantity) }} units</strong>
+  · comparing in {{ project.base_currency }}
+  {% if comparison %}· version {{ comparison.version }}{% endif %}
 </p>
 
-<div class="grid two">
+{% if notice %}
+  <div class="notice">{{ notice }}</div>
+{% endif %}
+
+{# ---------------------------------------------------------------------------
+   Step 1 — who is in the running.
+   The supplier list comes first because everything else hangs off it: documents
+   are filed into a supplier's column, and the comparison table is those columns.
+--------------------------------------------------------------------------- #}
+<div class="panel">
+  <div class="panel-head">
+    <h2>Suppliers under consideration</h2>
+    <span class="small muted">{{ suppliers | length }} on the list</span>
+  </div>
+
+  <p class="small muted" style="margin-top:-4px">
+    Add one for every supplier you are considering. Each gets its own column below,
+    and you upload that supplier's quotation into it. <strong>A name is all that is
+    required</strong> — country and notes are for your own reference and are never
+    used in any calculation.
+  </p>
+
+  <form method="post" action="/projects/{{ project.id }}/suppliers" class="addbar">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <div class="row">
+      <div style="flex:3">
+        <label for="supplier-name">Supplier name <span class="req yes">Required</span></label>
+        <input id="supplier-name" name="name" required
+               placeholder="Shenzhen Precision Metalworks">
+      </div>
+      <div style="flex:1">
+        <label for="supplier-country">Country <span class="req no">Optional</span></label>
+        <input id="supplier-country" name="country" placeholder="China">
+      </div>
+      <div style="flex:0"><button type="submit">+ Add supplier</button></div>
+    </div>
+  </form>
+
+  {% if not suppliers %}
+    <p class="empty small">
+      No suppliers yet. Add one for each quotation you have been sent — the comparison
+      is built from this list, and a supplier with no quotation shows as a gap rather
+      than quietly not appearing.
+    </p>
+  {% endif %}
+</div>
+
+{# ---------------------------------------------------------------------------
+   Step 2 — one column per supplier: their documents, their state, their numbers.
+--------------------------------------------------------------------------- #}
+{% if suppliers %}
   <div class="panel">
-    <h2>Evidence</h2>
-    {% if documents %}
-      <div class="scroll">
-        <table>
-          <tbody>
-          {% for document in documents %}
-            <tr>
-              <td>
+    <div class="panel-head">
+      <h2>Documents</h2>
+      <span class="small muted">One column per supplier</span>
+    </div>
+
+    <div class="columns">
+      {% for supplier in suppliers %}
+        {% set result = results_by_code.get(supplier.code) %}
+        <div class="column">
+          <div class="column-head">
+            <div>
+              <strong>{{ supplier.name }}</strong>
+              <div class="cite">{{ supplier.code }}{% if supplier.country %}
+                · {{ supplier.country }}{% endif %}</div>
+            </div>
+            <form method="post"
+                  action="/projects/{{ project.id }}/suppliers/{{ supplier.id }}/remove">
+              <input type="hidden" name="csrf_token" value="{{ csrf }}">
+              <button class="danger small ghost" type="submit" title="Remove supplier"
+                      aria-label="Remove {{ supplier.name }}">×</button>
+            </form>
+          </div>
+
+          {% if result %}
+            <span class="state {{ result.state }}">{{ STATE_LABEL[result.state] }}</span>
+          {% else %}
+            <span class="state pending">Not yet compared</span>
+          {% endif %}
+
+          <details class="details">
+            <summary class="small">Edit details</summary>
+            <form method="post"
+                  action="/projects/{{ project.id }}/suppliers/{{ supplier.id }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf }}">
+              <label class="small" for="n-{{ supplier.id }}">Name</label>
+              <input id="n-{{ supplier.id }}" name="name" required value="{{ supplier.name }}">
+              <label class="small" for="c-{{ supplier.id }}">Country</label>
+              <input id="c-{{ supplier.id }}" name="country" value="{{ supplier.country or '' }}">
+              <label class="small" for="t-{{ supplier.id }}">Notes</label>
+              <textarea id="t-{{ supplier.id }}" name="notes" rows="2"
+                        placeholder="contact, incumbent, site visited…">{{ supplier.notes or '' }}</textarea>
+              <button class="small ghost" type="submit">Save details</button>
+            </form>
+          </details>
+
+          <ul class="filelist">
+            {% for document in supplier_documents.get(supplier.id, []) %}
+              <li>
                 <a href="/projects/{{ project.id }}/documents/{{ document.id }}/open"
                    target="_blank" rel="noopener">{{ document.filename }}</a>
-                <div class="cite">{{ document.sha256[:12] }} · {{ document.byte_size }} bytes</div>
-              </td>
-              <td style="width:1%" class="small">
-                <a class="btn ghost small"
-                   href="/projects/{{ project.id }}/documents/{{ document.id }}/open?download=true">
-                  Download</a>
-              </td>
-              <td style="width:1%">
-                <form method="post"
+                <span class="tag">{{ document.kind }}</span>
+                <form method="post" class="inline"
                       action="/projects/{{ project.id }}/documents/{{ document.id }}/remove">
                   <input type="hidden" name="csrf_token" value="{{ csrf }}">
-                  <button class="danger small" type="submit">Remove</button>
+                  <button class="linkish small" type="submit">remove</button>
                 </form>
-              </td>
-            </tr>
-          {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    {% else %}
-      <p class="empty small">Nothing uploaded yet. Quotations, supplier profiles, and
-        the assumptions sheet.</p>
+                <div class="cite">{{ document.sha256[:10] }} ·
+                  {{ (document.byte_size / 1024) | round | int }} KB</div>
+              </li>
+            {% else %}
+              <li class="empty small">No documents yet.</li>
+            {% endfor %}
+          </ul>
+
+          <form method="post" action="/projects/{{ project.id }}/documents"
+                enctype="multipart/form-data" class="upload">
+            <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <input type="hidden" name="supplier_ref_id" value="{{ supplier.id }}">
+            <label class="small" for="kind-{{ supplier.id }}">
+              Add a document
+              {% if not supplier_documents.get(supplier.id) %}
+                <span class="req yes">Quotation needed</span>
+              {% endif %}
+            </label>
+            <select id="kind-{{ supplier.id }}" name="kind" class="small">
+              <option value="quotation">Quotation</option>
+              <option value="profile">Supplier profile</option>
+            </select>
+            <input name="files" type="file" multiple required class="small">
+            <button class="small ghost" type="submit">Upload</button>
+          </form>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
+
+{# ---------------------------------------------------------------------------
+   What to upload. Previously nowhere on the page, which meant a first-time user
+   had no way to know why their comparison came back empty.
+--------------------------------------------------------------------------- #}
+<div class="panel">
+    <h2>What to upload</h2>
+    <ul class="checklist">
+      {% for entry in required_documents %}
+        <li>
+          <span class="req {{ 'yes' if entry.required else 'no' }}">
+            {{ "Required" if entry.required else "Optional" }}</span>
+          <strong>{{ entry.title }}</strong>
+          <p class="small muted">{{ entry.detail }}</p>
+        </li>
+      {% endfor %}
+    </ul>
+
+    {% if shared_documents %}
+      <h3 class="small">Shared project material</h3>
+      <ul class="filelist">
+        {% for document in shared_documents %}
+          <li>
+            <a href="/projects/{{ project.id }}/documents/{{ document.id }}/open"
+               target="_blank" rel="noopener">{{ document.filename }}</a>
+            <form method="post" class="inline"
+                  action="/projects/{{ project.id }}/documents/{{ document.id }}/remove">
+              <input type="hidden" name="csrf_token" value="{{ csrf }}">
+              <button class="linkish small" type="submit">remove</button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
     {% endif %}
 
-    <form method="post" action="/projects/{{ project.id }}/documents"
-          enctype="multipart/form-data" style="margin-top:14px">
-      <input type="hidden" name="csrf_token" value="{{ csrf }}">
-      <div class="field">
-        <label for="files">Add documents (PDF, Word, Excel, CSV, images)</label>
-        <input id="files" name="files" type="file" multiple required>
-      </div>
-      <button type="submit">Upload</button>
-    </form>
-  </div>
+  {# No upload form here. Every document belongs to a supplier and is uploaded in
+     that supplier's column; a second box on the same page only raises the question
+     of which one to use. Shared material is filed by uploading it under any supplier
+     and is listed above if it exists from an earlier session. #}
+</div>
 
-  <div class="panel">
-    <h2>Run a comparison</h2>
-    <form method="post" action="/projects/{{ project.id }}/run">
-      <input type="hidden" name="csrf_token" value="{{ csrf }}">
-      <div class="field">
+{# ---------------------------------------------------------------------------
+   The costs no quotation states. Fixed for the demo and shown read-only, because
+   a total computed from a figure the reader cannot see is a total they cannot check.
+--------------------------------------------------------------------------- #}
+<div class="panel">
+  <div class="panel-head">
+    <h2>Cost assumptions</h2>
+    <span class="req no">Fixed for this demo</span>
+  </div>
+  <p class="small muted" style="margin-top:-4px">
+    A quotation prices goods. It never states what your freight costs, what duty you
+    pay, or what your money costs — so these come from the buying team, and every
+    figure they produce is labelled an assumption, never as something a supplier said.
+  </p>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Assumption</th><th class="num">Value</th><th>Applies to</th></tr></thead>
+      <tbody>
+        {% for label, value in assumptions_used %}
+          <tr>
+            <td>{{ label }}</td>
+            <td class="num mono"><strong>{{ value }}</strong></td>
+            <td class="small muted">
+              {% if "Freight" in label %}Buyer's leg only — a seller-paid term (CIF, DDP) shows 0.00
+              {% elif "Duty" in label %}Charged on CIF value, unless the seller clears the goods (DDP)
+              {% elif "Insurance" in label %}Charged on goods plus freight, unless seller-insured (CIF, CIP)
+              {% elif "capital" in label %}Cost of money over the payment period
+              {% elif "Payment" in label %}Days the buyer's cash is outstanding
+              {% else %}Applied where the quotation does not state it{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="small muted" style="margin-top:10px">
+    No exchange rate is set. An undated rate is treated as no rate at all — a
+    conversion nobody can date is a conversion nobody can check — so a quotation in a
+    foreign currency is refused rather than converted on a guess.
+  </p>
+</div>
+
+{# ---------------------------------------------------------------------------
+   Step 3 — run it. Quantity lives here, next to the button it changes, because
+   it is the one input on this page that moves every number in the result.
+--------------------------------------------------------------------------- #}
+<div class="panel run">
+  <form method="post" action="/projects/{{ project.id }}/run">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <div class="row">
+      <div style="flex:3">
+        <h2>Compare</h2>
+        <p class="small muted">
+          Reading the documents takes a moment. Each run is saved as a new version;
+          earlier ones are never rewritten, so a report already sent still says what
+          it said.
+        </p>
+      </div>
+      <div style="max-width:170px">
         <label for="quantity">Order quantity</label>
         <input id="quantity" name="quantity" type="number" min="1" required
-               value="{{ comparison.quantity if comparison else 10000 }}">
+               value="{{ project.target_quantity }}">
       </div>
-      <button type="submit">Compare suppliers</button>
-      <p class="small muted" style="margin-top:10px">
-        Reading the documents takes a moment. Each run is saved as a new version;
-        earlier ones are never rewritten.
-      </p>
-    </form>
+      <div style="flex:0">
+        <button type="submit">Compare {{ suppliers | length }} supplier{{
+          "" if suppliers | length == 1 else "s" }}</button>
+      </div>
+    </div>
+  </form>
+  <p class="small muted" style="margin-top:10px">
+    Tooling is spread across the order, so the cheapest supplier at one volume is
+    routinely not the cheapest at another. Changing the quantity and re-running is
+    the comparison worth making.
+  </p>
 
-    {% if versions|length > 1 %}
-      <h2 style="margin-top:20px">Versions</h2>
-      <form method="get" action="/projects/{{ project.id }}/diff">
-        <div class="row">
-          <div>
-            <label for="base">Compare</label>
-            <select id="base" name="base">
-              {% for entry in versions %}
-                <option value="{{ entry.version }}"
-                  {% if loop.index == 2 %}selected{% endif %}>v{{ entry.version }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div>
-            <label for="target">against</label>
-            <select id="target" name="target">
-              {% for entry in versions %}
-                <option value="{{ entry.version }}"
-                  {% if loop.first %}selected{% endif %}>v{{ entry.version }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div style="flex:0"><button class="ghost" type="submit">Show changes</button></div>
+  {% if versions | length > 1 %}
+    <form method="get" action="/projects/{{ project.id }}/diff" style="margin-top:16px">
+      <div class="row">
+        <div>
+          <label for="base">Compare version</label>
+          <select id="base" name="base">
+            {% for entry in versions %}
+              <option value="{{ entry.version }}"
+                {% if loop.index == 2 %}selected{% endif %}>v{{ entry.version }}</option>
+            {% endfor %}
+          </select>
         </div>
-      </form>
-    {% endif %}
-  </div>
+        <div>
+          <label for="target">against</label>
+          <select id="target" name="target">
+            {% for entry in versions %}
+              <option value="{{ entry.version }}"
+                {% if loop.first %}selected{% endif %}>v{{ entry.version }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div style="flex:0"><button class="ghost" type="submit">Show changes</button></div>
+      </div>
+    </form>
+  {% endif %}
 </div>
 
 {% if comparison %}
   {% set blocked = results | rejectattr("breakdown") | list %}
+  {% set costed = results | selectattr("breakdown") | list %}
 
+  {# -------------------------------------------------------------------------
+     The comparison itself: cost lines down the side, one supplier per column.
+     Read across a row and you are comparing like with like; read down a column
+     and you have one supplier's whole position. A withheld cell sits in the
+     column of the supplier it belongs to, so it is obvious who is missing what.
+  ------------------------------------------------------------------------- #}
   <div class="panel">
-    <h2>Suppliers</h2>
+    <div class="panel-head">
+      <h2>Landed cost side by side</h2>
+      <span class="small muted">
+        {{ costed | length }} of {{ results | length }} comparable ·
+        {{ "{:,}".format(comparison.quantity) }} units · {{ comparison.currency }}</span>
+    </div>
+
     <div class="scroll">
-      <table>
+      <table class="matrix">
         <thead>
           <tr>
-            <th>Supplier</th><th>State</th>
-            <th class="num">Per unit</th><th class="num">Total</th>
+            <th class="rowhead"></th>
+            {% for result in results %}
+              <th class="{{ 'best' if loop.first and result.breakdown else '' }}">
+                <div>{{ result.supplier_name or result.supplier_id }}</div>
+                <span class="state {{ result.state }}">{{ STATE_LABEL[result.state] }}</span>
+                {% if loop.first and result.breakdown %}
+                  <div class="badge">Lowest landed cost</div>
+                {% endif %}
+              </th>
+            {% endfor %}
           </tr>
         </thead>
         <tbody>
-        {% for result in results %}
-          <tr>
-            <td>
-              <strong>{{ result.supplier_name or result.supplier_id }}</strong>
-              <div class="cite">{{ result.supplier_id }}</div>
-            </td>
-            <td>
-              <span class="state {{ result.state }}">{{ STATE_LABEL[result.state] }}</span>
-              <div class="small muted">{{ STATE_HINT[result.state] }}</div>
-            </td>
-            {% if result.breakdown %}
-              <td class="num mono">{{ result.breakdown.per_unit.value | money }}</td>
-              <td class="num mono">{{ result.breakdown.total.value | money }}</td>
-            {% else %}
-              <td class="num withheld">—</td>
-              <td class="num withheld">—</td>
-            {% endif %}
+          {% for label, key in [
+              ("Goods", "goods"), ("Tooling (amortized)", "tooling_amortized"),
+              ("Freight", "freight"), ("Insurance", "insurance"),
+              ("Duty", "duty"), ("Financing", "financing")] %}
+            <tr>
+              <td class="rowhead">{{ label }}</td>
+              {% for result in results %}
+                {% if result.breakdown %}
+                  <td class="num mono" title="{{ result.breakdown[key].note or '' }}">
+                    {{ result.breakdown[key].value | money }}</td>
+                {% else %}
+                  <td class="num withheld">—</td>
+                {% endif %}
+              {% endfor %}
+            </tr>
+          {% endfor %}
+
+          <tr class="total">
+            <td class="rowhead">Total</td>
+            {% for result in results %}
+              {% if result.breakdown %}
+                <td class="num mono"><strong>{{ result.breakdown.total.value | money }}</strong></td>
+              {% else %}
+                <td class="num withheld">—</td>
+              {% endif %}
+            {% endfor %}
           </tr>
-        {% endfor %}
+          <tr class="total">
+            <td class="rowhead">Per unit</td>
+            {% for result in results %}
+              {% if result.breakdown %}
+                <td class="num mono"><strong>{{ result.breakdown.per_unit.value | money }}</strong></td>
+              {% else %}
+                <td class="num withheld">—</td>
+              {% endif %}
+            {% endfor %}
+          </tr>
+          <tr>
+            <td class="rowhead small muted">Why not</td>
+            {% for result in results %}
+              <td class="small muted">
+                {% if result.breakdown %}—{% else %}
+                  {{ result.refusal.reason if result.refusal else STATE_HINT[result.state] }}
+                {% endif %}
+              </td>
+            {% endfor %}
+          </tr>
         </tbody>
       </table>
     </div>
+
     <p class="small muted" style="margin-top:10px">
-      {{ results | selectattr("breakdown") | list | length }} of {{ results | length }}
-      suppliers are comparable. A supplier we declined to cost shows no number —
-      a figure on screen is a figure someone will act on.
+      A supplier we declined to cost shows no number. A figure on screen is a figure
+      someone will act on.
     </p>
+
+    {# Every total above is computed from these. Shown because a figure derived from
+       an assumption the reader cannot see is a figure they cannot check — and the
+       brief requires assumptions displayed beside the recommendation they produced. #}
+    <div class="assumed" style="margin-top:14px">
+      <div class="assumed-tag">Team assumptions applied — not quoted by any supplier</div>
+      <div class="values" style="margin-top:6px">
+        {% for label, value in assumptions_used %}
+          <span>{{ label }}: <strong class="mono">{{ value }}</strong></span>
+        {% endfor %}
+      </div>
+    </div>
   </div>
 
   {% if blocked %}
@@ -193,49 +443,15 @@
       {% endfor %}
     </div>
   {% endif %}
-
-  {% for result in results if result.breakdown %}
-    {% if loop.first %}
-      <div class="panel">
-        <h2>Lowest landed cost — {{ result.supplier_name or result.supplier_id }}</h2>
-        <div class="scroll">
-          <table>
-            <tbody>
-            {% for label, key in [
-                ("Goods", "goods"), ("Tooling (amortized)", "tooling_amortized"),
-                ("Freight", "freight"), ("Insurance", "insurance"),
-                ("Duty", "duty"), ("Financing", "financing")] %}
-              {% set term = result.breakdown[key] %}
-              <tr>
-                <td>{{ label }}</td>
-                <td class="num mono">{{ term.value | money }}</td>
-                <td class="small muted">{{ term.note or "" }}</td>
-              </tr>
-            {% endfor %}
-              <tr>
-                <td><strong>Total</strong></td>
-                <td class="num mono"><strong>{{ result.breakdown.total.value | money }}</strong></td>
-                <td class="small muted">{{ comparison.currency }}</td>
-              </tr>
-              <tr>
-                <td><strong>Per unit</strong></td>
-                <td class="num mono"><strong>{{ result.breakdown.per_unit.value | money }}</strong></td>
-                <td class="small muted">at {{ "{:,}".format(comparison.quantity) }} units</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    {% endif %}
-  {% endfor %}
 {% else %}
   <div class="panel empty">
     <p>No comparison yet.</p>
-    <p class="small">Upload the documents you have been sent, then run a comparison.</p>
+    <p class="small">Add your suppliers, upload each one's quotation, state the
+      assumptions above, then compare.</p>
   </div>
 {% endif %}
 
-<div class="panel">
+<div class="panel" id="ask">
   <h2>Ask about this comparison</h2>
 
   {% if messages %}
@@ -252,6 +468,9 @@
                 <form method="post"
                       action="/projects/{{ project.id }}/chat/{{ message.id }}/confirm">
                   <input type="hidden" name="csrf_token" value="{{ csrf }}">
+                  {% if comparison %}
+                    <input type="hidden" name="version" value="{{ comparison.version }}">
+                  {% endif %}
                   <button class="small" type="submit">Confirm this change</button>
                 </form>
               {% else %}
@@ -269,8 +488,12 @@
     </p>
   {% endif %}
 
-  <form method="post" action="/projects/{{ project.id }}/ask" style="margin-top:12px">
+  <form method="post" action="/projects/{{ project.id }}/ask#ask" style="margin-top:12px">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    {# Carry the version so asking about a comparison does not clear it off screen. #}
+    {% if comparison %}
+      <input type="hidden" name="version" value="{{ comparison.version }}">
+    {% endif %}
     <div class="row">
       <div style="flex:4">
         <label for="question">Your question</label>

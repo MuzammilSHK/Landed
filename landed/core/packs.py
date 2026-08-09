@@ -48,6 +48,24 @@ class SupplierDocuments:
         """A profile alone describes a supplier but does not price anything."""
         return bool(self.quotations)
 
+    def attach(self, document: IngestedDocument, kind: str | None = None) -> None:
+        """File a document as this supplier's quotation or profile.
+
+        An explicit `kind` wins. Without one, the filename convention decides, and a
+        file matching neither prefix is treated as a quotation — under an explicit
+        mapping somebody has already said which supplier it belongs to, and the
+        likeliest reason to attach a file to a supplier is that it prices something.
+        """
+        if kind is None:
+            lowered = document.filename.lower()
+            if lowered.startswith(PROFILE_PREFIXES):
+                kind = "profile"
+            elif lowered.startswith(QUOTE_PREFIXES):
+                kind = "quotation"
+            else:
+                kind = "quotation"
+        (self.profiles if kind == "profile" else self.quotations).append(document)
+
     def __repr__(self) -> str:
         return (
             f"SupplierDocuments({self.supplier_id!r}, "
@@ -63,15 +81,28 @@ def supplier_id_from_filename(filename: str) -> str | None:
 def group_by_supplier(
     documents: list[IngestedDocument],
     mapping: dict[str, str] | None = None,
+    kinds: dict[str, str] | None = None,
+    declared: list[str] | None = None,
 ) -> dict[str, SupplierDocuments]:
     """Attribute documents to suppliers.
 
-    `mapping` overrides the filename convention for packs that do not follow it.
-    Documents matching neither are shared pack material — briefs, BOMs, assumptions —
-    and are returned to the caller's attention by being absent here rather than
-    silently discarded.
+    `mapping` names the supplier each file belongs to, and `kinds` says whether a file
+    is a quotation or a profile. Both come from the web app, where the user chose the
+    supplier at upload time. The filename convention is the fallback for a pack
+    directory ingested headlessly, not the primary path — a real buyer's file is
+    called `Shenzhen_Q3_revised.pdf`, and requiring it to be called `quote_a.pdf` in
+    order to be seen at all meant a whole supplier silently vanished.
+
+    `declared` lists suppliers that must appear even with nothing attributed to them,
+    so a supplier someone added but never uploaded a quote for shows as an empty
+    column rather than not existing.
+
+    Documents matching nothing are shared material — briefs, BOMs, assumptions — and
+    are absent here rather than silently discarded.
     """
-    grouped: dict[str, SupplierDocuments] = {}
+    grouped: dict[str, SupplierDocuments] = {
+        code: SupplierDocuments(code) for code in (declared or [])
+    }
     for document in documents:
         supplier_id = (mapping or {}).get(document.filename) or supplier_id_from_filename(
             document.filename
@@ -79,11 +110,7 @@ def group_by_supplier(
         if supplier_id is None:
             continue
         bundle = grouped.setdefault(supplier_id, SupplierDocuments(supplier_id))
-        lowered = document.filename.lower()
-        if lowered.startswith(PROFILE_PREFIXES):
-            bundle.profiles.append(document)
-        elif lowered.startswith(QUOTE_PREFIXES):
-            bundle.quotations.append(document)
+        bundle.attach(document, (kinds or {}).get(document.filename))
     return dict(sorted(grouped.items()))
 
 

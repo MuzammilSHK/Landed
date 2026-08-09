@@ -1,0 +1,7 @@
+Level,Item,Description,Material,Qty per unit,Unit
+1,CTR-H220-A,"Housing, upper shell",ABS+PC UL94 V-0,1,pc
+1,CTR-H220-B,"Housing, lower shell",ABS+PC UL94 V-0,1,pc
+2,CTR-H220-G,"Gasket, perimeter seal",Silicone 60 Shore A,1,pc
+2,CTR-H220-L,"Light pipe, status LED",PMMA clear,2,pc
+2,FST-M3-08,"Screw, M3 x 8 pan head",Stainless A2,4,pc
+3,LBL-H220,"Rating label, printed",Polyester,1,pc

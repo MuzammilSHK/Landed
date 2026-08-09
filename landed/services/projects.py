@@ -32,6 +32,7 @@ def create_project(
     product_name: str | None = None,
     base_currency: str = "USD",
     destination_country: str | None = None,
+    target_quantity: int = 10000,
 ) -> Project:
     project = Project(
         user_id=user.id,
@@ -39,8 +40,72 @@ def create_project(
         product_name=(product_name or "").strip() or None,
         base_currency=base_currency.upper()[:3],
         destination_country=(destination_country or "").strip() or None,
+        target_quantity=max(1, target_quantity),
+        # Left empty on purpose: assumptions come from DEFAULT_ASSUMPTIONS at
+        # calculation time, so changing that constant changes every project rather
+        # than only the ones created afterwards.
+        assumptions={},
     )
     session.add(project)
+    session.commit()
+    return project
+
+
+# The standing cost assumptions every comparison runs under.
+#
+# Freight, duty, insurance, and the cost of capital are never stated in a quotation —
+# a supplier prices goods, not your logistics — so they have to come from somewhere.
+# For now that somewhere is here: one set of figures, matching what the challenge pack
+# states, so a demo run and a pack run are arithmetically comparable.
+#
+# They are applied at calculation time and carry `Origin.ASSUMED` with an attribution
+# naming them as a standing default, so no total ever presents one as something a
+# supplier's document said. They are also listed under the comparison table, because
+# a figure computed from an assumption the reader cannot see is not a figure they can
+# check.
+DEFAULT_ASSUMPTIONS: dict[str, str] = {
+    "freight_flat": "8200",              # flat ocean freight, one 20ft container
+    "duty_rate": "0.065",                # 6.5% of CIF value
+    "insurance_rate": "0.005",           # 0.5% of goods + freight
+    "financing_annual_rate": "0.08",     # 8% annual cost of capital
+    "payment_days_outstanding": "60",
+    # FX deliberately absent. A rate without a date is refused anyway, and inventing
+    # either for a currency we have not seen yet would be guessing at the exact point
+    # where guessing changes the ranking.
+}
+
+# How each default reads on screen. Kept beside the values so a figure and its label
+# cannot drift apart.
+ASSUMPTION_LABELS: dict[str, str] = {
+    "freight_flat": "Freight, flat",
+    "freight_per_kg": "Freight, per kg",
+    "duty_rate": "Duty rate",
+    "insurance_rate": "Insurance rate",
+    "financing_annual_rate": "Cost of capital, annual",
+    "fx_rate_to_base": "FX rate",
+    "fx_rate_date": "FX rate date",
+    "payment_days_outstanding": "Payment days outstanding",
+}
+
+
+def effective_assumptions(project: Project) -> dict:
+    """What this project will actually cost with.
+
+    Anything stored on the project wins, which is the seam a per-project assumptions
+    form would slot back into. Nothing is stored today, so every project runs on the
+    standing defaults — one set of figures, in one place, for every comparison.
+    """
+    return project.assumptions or dict(DEFAULT_ASSUMPTIONS)
+
+
+def set_quantity(session: Session, user: User, project_id: int, quantity: int) -> Project:
+    """Record the order quantity this project is comparing at.
+
+    Stored on the project rather than on a run: it is a property of the decision, and
+    a run carrying its own private copy is how two versions end up incomparable.
+    """
+    project = get_project(session, user, project_id)
+    project.target_quantity = max(1, quantity)
     session.commit()
     return project
 
@@ -86,6 +151,7 @@ def add_document(
     kind: str = "quotation",
     supplier_id: str | None = None,
     content_type: str | None = None,
+    supplier_ref_id: int | None = None,
 ) -> Document:
     """Store an uploaded file and record it against the project.
 
@@ -107,6 +173,7 @@ def add_document(
         content_type=content_type,
         kind=kind,
         supplier_id=supplier_id,
+        supplier_ref_id=supplier_ref_id,
         sha256=digest,
         byte_size=len(content),
         stored_path=str(stored),

@@ -248,18 +248,39 @@ def _state(comparison: Comparison) -> str:
     """
     lines = [
         f"version {comparison.version}, {comparison.quantity} units, "
-        f"currency {comparison.currency}"
+        f"currency {comparison.currency}",
+        "Every figure below is LANDED cost — goods plus tooling, freight, insurance, "
+        "duty and financing. It is not the price the supplier quoted per piece, and "
+        "the two routinely rank suppliers in opposite orders. Costed suppliers are "
+        "listed cheapest-landed first; rank 1 is the cheapest option available.",
     ]
-    for result in comparison.results:
+
+    # Cheapest first, blocked suppliers last. Ordering only — every number still comes
+    # from the stored breakdown, so the assistant cannot be handed a figure the cost
+    # engine did not produce.
+    costed = [r for r in comparison.results if r.breakdown]
+    blocked = [r for r in comparison.results if not r.breakdown]
+    costed.sort(key=lambda r: float(r.breakdown["per_unit"]["value"]))
+
+    for position, result in enumerate(costed + blocked, start=1):
         name = result.supplier_name or result.supplier_id
-        lines.append(f"\n[{result.supplier_id}] {name} — state: {result.state}")
+        rank = f"rank {position}" if result.breakdown else "not ranked — no total issued"
+        lines.append(f"\n[{result.supplier_id}] {name} — state: {result.state} ({rank})")
         if result.breakdown:
-            for key in (
-                "goods", "tooling_amortized", "freight",
-                "insurance", "duty", "financing", "total", "per_unit",
+            for key, label in (
+                ("goods", "goods"),
+                ("tooling_amortized", "tooling amortized over the order"),
+                ("freight", "freight"),
+                ("insurance", "insurance"),
+                ("duty", "import duty"),
+                ("financing", "financing"),
+                ("total", "TOTAL landed cost for the whole order"),
+                ("per_unit", "LANDED COST PER UNIT (the ranking basis)"),
             ):
                 term = result.breakdown.get(key) or {}
-                lines.append(f"    {key}: {term.get('value')}")
+                lines.append(f"    {label}: {term.get('value')}")
+                if term.get("note"):
+                    lines.append(f"        note: {term['note']}")
         if result.refusal:
             lines.append(f"    refused: {result.refusal.get('reason')}")
             missing = result.refusal.get("missing_fields") or []

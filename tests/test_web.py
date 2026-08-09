@@ -198,20 +198,24 @@ class TestProjectFlow:
 
     def test_running_produces_the_three_states(self, client: TestClient) -> None:
         project_id = self.project_with_documents(client)
-        client.post(
+        run = client.post(
             f"/projects/{project_id}/run", data={"quantity": "10000", **_csrf(client)}
         )
-        page = client.get(f"/projects/{project_id}").text
+        # Results live at the version the run produced; a bare
+        # project URL is deliberately clean. Follow the redirect.
+        page = client.get(run.headers["location"]).text
         assert "Landed" in page
         assert "Not landed" in page
 
     def test_a_blocked_supplier_renders_no_number(self, client: TestClient) -> None:
         """A figure on screen is a figure someone will act on."""
         project_id = self.project_with_documents(client)
-        client.post(
+        run = client.post(
             f"/projects/{project_id}/run", data={"quantity": "10000", **_csrf(client)}
         )
-        page = client.get(f"/projects/{project_id}").text
+        # Results live at the version the run produced; a bare
+        # project URL is deliberately clean. Follow the redirect.
+        page = client.get(run.headers["location"]).text
         assert "delivery terms (Incoterm) not stated" in page
         assert "withheld" in page
 

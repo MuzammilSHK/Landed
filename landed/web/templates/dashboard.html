@@ -18,12 +18,22 @@
         <label for="product_name">Product</label>
         <input id="product_name" name="product_name" placeholder="ALU-ENC-140">
       </div>
+      <div style="max-width:140px">
+        <label for="target_quantity">Order quantity</label>
+        <input id="target_quantity" name="target_quantity" type="number" min="1"
+               value="10000">
+      </div>
       <div style="max-width:120px">
         <label for="base_currency">Currency</label>
         <input id="base_currency" name="base_currency" value="USD" maxlength="3">
       </div>
       <div style="flex:0"><button type="submit">Create</button></div>
     </div>
+    <p class="small muted" style="margin-top:8px">
+      Quantity is asked here because every figure depends on it — tooling is spread
+      across the order, so the cheapest supplier at 5,000 is often not the cheapest at
+      50,000. You can change it later.
+    </p>
   </form>
 </div>
 
@@ -42,8 +52,12 @@
             <span class="muted">· version {{ summary.version }}
               at {{ "{:,}".format(summary.quantity) }} units</span>
           </p>
+        {% elif summary.suppliers %}
+          <p class="small muted">
+            {{ summary.suppliers }} supplier{{ "" if summary.suppliers == 1 else "s" }}
+            added · not yet compared</p>
         {% else %}
-          <p class="small muted">Not yet compared</p>
+          <p class="small muted">No suppliers yet</p>
         {% endif %}
       </a>
     {% endfor %}

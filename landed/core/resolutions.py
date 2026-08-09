@@ -77,6 +77,66 @@ LINE_ITEM_FIELDS = {
     "unit_weight_kg",
 }
 
+# Assumption fields a person enters directly, and how each is carried. Rates are bare
+# decimals; freight is money and needs the currency it was quoted in.
+_ASSUMPTION_INPUTS: dict[str, str] = {
+    "freight_flat": "money",
+    "freight_per_kg": "money",
+    "duty_rate": "rate",
+    "insurance_rate": "rate",
+    "financing_annual_rate": "rate",
+    "fx_rate_to_base": "rate",
+}
+
+
+def assumptions_from_inputs(
+    values: dict,
+    base_currency: str,
+    attribution: Attribution,
+) -> CostAssumptions:
+    """Build cost assumptions from figures a person entered.
+
+    The counterpart to `packs.load_assumptions`, which reads the same figures out of a
+    spreadsheet. Both produce the same contract; this one carries an `Attribution`
+    instead of a `Source`, which is what keeps a rate somebody typed distinguishable
+    from a rate a document stated everywhere it is later displayed.
+
+    A blank or unparseable entry is left as None rather than coerced to zero. Zero
+    duty is a claim; no duty rate is an absence, and the cost engine must be able to
+    tell them apart in order to refuse.
+    """
+    supplied: dict = {}
+    for field, kind in _ASSUMPTION_INPUTS.items():
+        amount = _decimal(str(values.get(field) or ""))
+        if amount is None:
+            continue
+        supplied[field] = (
+            Money(
+                value=amount,
+                currency=base_currency,
+                origin=Origin.ASSUMED,
+                attribution=attribution,
+                note=f"supplied by {attribution.actor}, not stated in any document",
+            )
+            if kind == "money"
+            else Sourced[Decimal](
+                value=amount,
+                origin=Origin.ASSUMED,
+                attribution=attribution,
+                note=f"supplied by {attribution.actor}, not stated in any document",
+            )
+        )
+
+    date = str(values.get("fx_rate_date") or "").strip()
+    days = _decimal(str(values.get("payment_days_outstanding") or ""))
+
+    return CostAssumptions(
+        base_currency=base_currency,
+        fx_rate_date=date or None,
+        payment_days_outstanding=int(days) if days is not None else 0,
+        **supplied,
+    )
+
 
 def apply(
     quotation: Quotation,

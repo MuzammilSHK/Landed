@@ -3,37 +3,26 @@
    like anything. Dark and light both supported; the palette is deliberately quiet so
    the three states carry the only strong colour on the page. */
 
+/* One palette, warm and light, in every environment.
+   Deliberately not following prefers-color-scheme: a sourcing report is read,
+   printed and screen-shared alongside the documents it cites, and those are white.
+   A dashboard that flips to near-black on one machine and not another also makes a
+   demo unrepeatable. Warm neutrals rather than blue-greys, so the three state
+   colours stay the only strong colour on the page. */
 :root {
-  --bg: #f6f7f9;
+  --bg: #f8f6f2;
   --panel: #ffffff;
-  --ink: #16191d;
-  --muted: #646c78;
-  --line: #e3e6ea;
-  --accent: #1f4fd8;
-  --landed: #17794b;
-  --landed-bg: #e6f4ec;
-  --contested: #9a6400;
-  --contested-bg: #fdf1dc;
-  --blocked: #a52222;
-  --blocked-bg: #fbeaea;
-  --radius: 8px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #14171b;
-    --panel: #1b1f24;
-    --ink: #e8eaed;
-    --muted: #98a1ad;
-    --line: #2b3138;
-    --accent: #6d95ff;
-    --landed: #5fc99a;
-    --landed-bg: #163024;
-    --contested: #e0ae5c;
-    --contested-bg: #33280f;
-    --blocked: #f08a8a;
-    --blocked-bg: #341b1b;
-  }
+  --ink: #262220;
+  --muted: #6d655d;
+  --line: #e7e1d7;
+  --accent: #4257b2;
+  --landed: #1a7f52;
+  --landed-bg: #e8f5ed;
+  --contested: #8a5a00;
+  --contested-bg: #fdf2dc;
+  --blocked: #a5322a;
+  --blocked-bg: #fbebe8;
+  --radius: 10px;
 }
 
 * { box-sizing: border-box; }
@@ -53,7 +42,7 @@ a:hover { text-decoration: underline; }
 /* ---- header ---- */
 header.top {
   border-bottom: 1px solid var(--line);
-  background: var(--panel);
+  background: linear-gradient(180deg, #ffffff 0%, #fbf9f5 100%);
   margin-bottom: 28px;
 }
 header.top .wrap {
@@ -82,6 +71,7 @@ h3 { font-size: 15px; margin: 0 0 8px; }
   border-radius: var(--radius);
   padding: 18px;
   margin-bottom: 20px;
+  box-shadow: 0 1px 2px rgba(38, 34, 32, 0.04);
 }
 .grid { display: grid; gap: 20px; }
 .grid.two { grid-template-columns: 1fr 1fr; }
@@ -214,6 +204,96 @@ footer.boundary {
   border-top: 1px solid var(--line); margin-top: 40px; padding-top: 16px;
   color: var(--muted); font-size: 13px;
 }
+
+/* ---- a supplier not yet in any comparison ---- */
+.state.pending { color: var(--muted); background: var(--bg); border: 1px solid var(--line); }
+
+/* ---- panel headers with a count on the right ---- */
+.panel-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; margin-bottom: 12px;
+}
+.panel-head h2 { margin: 0; }
+
+/* ---- supplier columns ----
+   One column per supplier, side by side and scrolling horizontally past four or so.
+   Stacking them on narrow screens keeps each supplier's documents together, which is
+   the unit someone is actually working with. */
+.columns {
+  display: grid; gap: 14px; overflow-x: auto; padding-bottom: 4px;
+  grid-auto-flow: column; grid-auto-columns: minmax(240px, 1fr);
+}
+@media (max-width: 760px) {
+  .columns { grid-auto-flow: row; grid-auto-columns: auto; }
+}
+.column {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 12px; background: var(--bg);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.column-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+}
+.column-head form { flex: 0 0 auto; }
+.column-head button {
+  padding: 0 7px; line-height: 1.6; font-size: 15px;
+}
+.addbar { margin-bottom: 4px; }
+
+/* ---- document lists ---- */
+.filelist { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.filelist li { font-size: 13px; }
+.filelist li.empty { padding: 8px 0; text-align: left; }
+.tag {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--muted); border: 1px solid var(--line);
+  padding: 1px 6px; border-radius: 999px; margin-left: 6px;
+}
+button.linkish {
+  background: none; border: none; padding: 0 0 0 8px;
+  color: var(--muted); font-weight: 400; text-decoration: underline;
+}
+.upload { display: grid; gap: 6px; margin-top: auto; }
+.details summary {
+  cursor: pointer; color: var(--muted); padding: 2px 0;
+}
+.details form { display: grid; gap: 4px; padding: 8px 0 2px; }
+.details textarea { resize: vertical; }
+.upload input[type=file] { font-size: 12px; padding: 6px; }
+
+/* ---- what-to-upload checklist ---- */
+.checklist { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 14px; }
+.checklist p { margin: 4px 0 0; }
+.req {
+  display: inline-block; font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  padding: 1px 7px; border-radius: 999px; margin-right: 8px;
+}
+.req.yes { color: var(--blocked); background: var(--blocked-bg); }
+.req.no { color: var(--muted); background: var(--bg); border: 1px solid var(--line); }
+
+/* ---- the comparison matrix ----
+   Cost lines down the side, suppliers across. The row header stays put while the
+   columns scroll, so a figure never loses the label that says what it is. */
+.matrix th, .matrix td { white-space: nowrap; }
+.matrix .rowhead {
+  position: sticky; left: 0; z-index: 1;
+  background: var(--panel); text-align: left; white-space: normal;
+  min-width: 150px; font-weight: 600;
+}
+.matrix thead th { vertical-align: bottom; padding-bottom: 10px; }
+.matrix thead th > div { font-size: 14px; color: var(--ink);
+  text-transform: none; letter-spacing: 0; margin-bottom: 4px; }
+.matrix th.best { background: var(--landed-bg); border-radius: 6px 6px 0 0; }
+.matrix .badge {
+  margin-top: 5px; font-size: 11px; font-weight: 700; color: var(--landed);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.matrix tr.total td { border-top: 2px solid var(--line); }
+.matrix tr.total .rowhead { text-transform: uppercase; font-size: 12px;
+  letter-spacing: 0.05em; color: var(--muted); }
+
+.panel.run { border-color: var(--accent); }
 
 /* HTMX shows this while a request is in flight. */
 .htmx-indicator { display: none; }
