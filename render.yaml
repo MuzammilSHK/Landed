@@ -19,37 +19,46 @@ services:
     name: landed
     runtime: python
     plan: free
-    # `alembic upgrade head` runs at build, not at start. On start it would run once
-    # per instance and race itself the moment there is more than one.
-    buildCommand: pip install -r requirements.txt && alembic upgrade head
-    startCommand: uvicorn landed.web.app:app --host 0.0.0.0 --port $PORT
-    healthCheckPath: /healthz
 
-    # Uploaded quotations are written to disk and cited by every stored comparison
-    # version. Without a persistent disk Render's filesystem resets on each deploy and
-    # every citation in the audit trail stops resolving.
-    disk:
-      name: landed-uploads
-      mountPath: /var/data/uploads
-      sizeGB: 1
+    # Migrations run at start, not at build. Render's build step has no access to the
+    # private network, so the internal database hostname does not resolve there and a
+    # build-time `alembic upgrade head` fails against localhost every time. At start
+    # the service is inside the network and the internal URL works. Safe on this plan
+    # because it runs a single instance; with more than one, move the migration to a
+    # pre-deploy command so it cannot race itself.
+    buildCommand: pip install -r requirements.txt
+    startCommand: alembic upgrade head && uvicorn landed.web.app:app --host 0.0.0.0 --port $PORT
+
+    healthCheckPath: /healthz
 
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.7"
+
       - key: LANDED_DATABASE_URL
         fromDatabase:
           name: landed-db
           property: connectionString
+
+      # No persistent disk: the free plan does not offer one. Uploads therefore go to
+      # the container's own filesystem and do NOT survive a restart or redeploy — the
+      # project rows and comparison versions persist in Postgres, but the stored bytes
+      # a citation points at will not. Fine for a demo where documents are uploaded
+      # and compared in one sitting. Attach a disk here and point this at its mount
+      # path before this is used for anything that has to stay explainable later.
       - key: LANDED_UPLOAD_DIR
-        value: /var/data/uploads
+        value: /tmp/landed-uploads
+
       # Signs the session cookie. Generated once by Render and never seen by us;
       # changing it invalidates every existing session, which is the correct
       # behaviour for a leaked key.
       - key: LANDED_SECRET_KEY
         generateValue: true
+
       # Render terminates TLS, so the session cookie can be marked Secure.
       - key: LANDED_SECURE_COOKIES
         value: "true"
+
       - key: LANDED_PROVIDER
         value: groq
       - key: LANDED_EXTRACTION_MODEL
